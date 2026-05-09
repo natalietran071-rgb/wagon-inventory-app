@@ -780,26 +780,27 @@ const Outbound = () => {
     try {
       const today = new Date().toISOString().split('T')[0];
       
-      const { data: dataToExport, error } = await supabase.rpc('export_outbound', {
-        p_search: searchQuery || '',
-        p_status: filterStatus.toLowerCase() === 'all' ? 'all' : filterStatus,
-        p_from_date: filterDate || null,
-        p_to_date: filterDate || null
-      }).limit(100000);
-
-      if (error || !dataToExport) throw error || new Error('No data found');
-
-      const exportData = (dataToExport || []).map(item => ({
-        'Mã Phiếu': item.outbound_id,
-        'Đối Tác / Người Nhận': item.partner,
-        'Mã ERP': item.erp_code,
-        'Số Lượng': item.qty,
-        'Ngày Yêu Cầu': item.required_date || item.date,
-        'Ngày Tạo': new Date(item.created_at).toLocaleString(),
-        'Trạng Thái': item.status,
-        'Vị Trí': item.location || '',
-        'Người xử lý': item.initials
-      }));
+      // Use filteredOutbound (already loaded via pagination) instead of RPC
+      const dataSource = filteredOutbound.length > 0 ? filteredOutbound : outboundRecords;
+      
+      const inventoryMap = new Map(inventoryItems.map(i => [i.erp, i]));
+      
+      const exportData = dataSource.map(item => {
+        const inv = inventoryMap.get(item.erp_code);
+        return {
+          'Mã Phiếu': item.outbound_id,
+          'Đối Tác / Người Nhận': item.partner,
+          'Mã ERP': item.erp_code,
+          'Tên Vật Tư': inv?.name || '',
+          'Quy Cách': inv?.spec || '',
+          'Số Lượng': item.qty,
+          'Ngày Yêu Cầu': item.required_date || item.date,
+          'Ngày Tạo': item.created_at ? new Date(item.created_at).toLocaleString('vi-VN') : '',
+          'Trạng Thái': item.status,
+          'Vị Trí': item.location || '',
+          'Người xử lý': item.initials
+        };
+      });
 
       const fileName = filterDate
         ? `xuat-kho_${filterDate}.xlsx`

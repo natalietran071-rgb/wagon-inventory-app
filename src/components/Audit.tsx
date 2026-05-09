@@ -698,18 +698,21 @@ const Audit = () => {
     try {
       const today = new Date().toISOString().split('T')[0];
       
-      const { data: dataToExport, error } = await supabase.rpc('export_audit', {
-        p_search: searchErp || '',
-        p_status: activeTab === 'history' ? 'Approved' : (activeTab === 'pending' ? 'Pending' : 'all'),
-        p_from_date: fromDate || null,
-        p_to_date: toDate || null
-      }).limit(100000);
+      // Use state data instead of RPC (which is capped at 1000 by PostgREST)
+      let dataSource: any[] = [];
+      if (activeTab === 'history') {
+        dataSource = historyItems;
+      } else if (activeTab === 'pending') {
+        dataSource = pendingRecords;
+      } else if (activeTab === 'draft') {
+        dataSource = auditItems;
+      } else {
+        dataSource = [...auditItems, ...pendingRecords, ...historyItems];
+      }
 
-      if (error) throw error;
-
-      const exportData = (dataToExport || []).map((item: any) => ({
+      const exportData = dataSource.map((item: any) => ({
         'Mã ERP': item.erp_code,
-        'Tên Vật Tư': item.item_name || 'N/A',
+        'Tên Vật Tư': item.item_name || item.name || 'N/A',
         'Vị Trí': item.location || '',
         'SL Hệ Thống': item.system_qty || 0,
         'SL Thực Tế': item.actual_qty || 0,

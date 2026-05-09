@@ -647,25 +647,24 @@ const Inbound = () => {
     try {
       const today = new Date().toISOString().split('T')[0];
       
-      let rpcQuery = supabase.rpc('export_inbound', {
-        p_search: searchQuery || '',
-        p_from_date: fromDate || null,
-        p_to_date: toDate || null
-      });
+      // Use filteredInbound (already loaded via pagination) instead of RPC
+      const dataSource = filteredInbound.length > 0 ? filteredInbound : inboundRecords;
       
-      const { data: dataToExport, error } = await rpcQuery.limit(100000);
-
-      if (error || !dataToExport) throw error || new Error('No data found');
-
-      const exportData = (dataToExport || []).map(item => ({
-        'Thời gian': `${item.date} ${item.time || ''}`,
-        'Order ID': item.order_id,
-        'Mã ERP': item.erp_code,
-        'Số lượng': item.qty,
-        'Đơn vị': item.unit,
-        'Vị trí': item.location || '',
-        'Trạng thái': item.status
-      }));
+      const inventoryMap = new Map(inventoryItems.map(i => [i.erp, i]));
+      
+      const exportData = dataSource.map(item => {
+        const inv = inventoryMap.get(item.erp_code);
+        return {
+          'Thời gian': `${item.date || ''} ${item.time || ''}`.trim(),
+          'Order ID': item.order_id || '',
+          'Mã ERP': item.erp_code,
+          'Tên Vật Tư': inv?.name || '',
+          'Số lượng': item.qty,
+          'Đơn vị': item.unit || inv?.unit || '',
+          'Vị trí': item.location || '',
+          'Trạng thái': item.status || ''
+        };
+      });
 
       const fileName = fromDate
         ? `nhap-kho_${fromDate}_${toDate || today}.xlsx`

@@ -365,18 +365,38 @@ const Inventory = () => {
     try {
       const today = new Date().toISOString().split('T')[0];
       
-      const { data: dataToExport, error } = await (supabase.rpc('export_inventory', {
-        p_search: searchName || '',
-        p_location: tableLocation === 'All' ? (selectedLocation === 'All' ? '' : selectedLocation) : tableLocation,
-        p_category: selectedCategory,
-        p_filter: filterProblem,
-        p_from_date: reportFromDate || null,
-        p_to_date: reportToDate || null
-      }) as any).setHeader('Prefer', 'return=representation');
+      // Fetch ALL inventory data using pagination (no 1000 row limit)
+      const PAGE = 1000;
+      let allData: any[] = [];
+      let page = 0;
+      let hasMore = true;
+      
+      while (hasMore) {
+        let query = supabase.from('inventory').select('*')
+          .order('erp', { ascending: true })
+          .range(page * PAGE, (page + 1) * PAGE - 1);
+        
+        // Apply same filters as current view
+        if (searchName) {
+          query = query.or(`erp.ilike.%${searchName}%,name.ilike.%${searchName}%,name_zh.ilike.%${searchName}%`);
+        }
+        const loc = tableLocation === 'All' ? (selectedLocation === 'All' ? '' : selectedLocation) : tableLocation;
+        if (loc) {
+          query = query.like('pos', `${loc}%`);
+        }
 
-      if (error || !dataToExport) throw error || new Error('No data found');
+        const { data, error } = await query;
+        if (error) throw error;
+        if (data && data.length > 0) {
+          allData = allData.concat(data);
+          hasMore = data.length === PAGE;
+          page++;
+        } else {
+          hasMore = false;
+        }
+      }
 
-      const exportData = (dataToExport || []).map((item: any, idx: number) => ({
+      const exportData = allData.map((item: any, idx: number) => ({
         'Số TT': idx + 1,
         'Mã ERP': item.erp,
         'Tên Tiếng Việt': item.name,

@@ -300,8 +300,7 @@ const Audit = () => {
         .from('audit_records')
         .select('*')
         .eq('status', 'Approved')
-        .order('approved_at', { ascending: false })
-        .limit(100); // Limit to 100 recent records for performance
+        .order('approved_at', { ascending: false });
 
       // Filter theo ngày nếu có
       if (fromDate) query = query.gte('approved_at', fromDate + 'T00:00:00');
@@ -704,11 +703,10 @@ const Audit = () => {
         p_status: activeTab === 'history' ? 'Approved' : (activeTab === 'pending' ? 'Pending' : 'all'),
         p_from_date: fromDate || null,
         p_to_date: toDate || null
-      });
+      }).limit(100000);
 
       if (error) throw error;
 
-      const XLSX = await import('xlsx');
       const exportData = (dataToExport || []).map((item: any) => ({
         'Mã ERP': item.erp_code,
         'Tên Vật Tư': item.item_name || 'N/A',
@@ -725,13 +723,10 @@ const Audit = () => {
         'Lý do điều chỉnh': item.adjustment_reason || ''
       }));
 
-      const ws = XLSX.utils.json_to_sheet(exportData);
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, "Báo Cáo Kiểm Kê");
-      
       const fileName = `kiem-ke_${today}.xlsx`;
-        
-      XLSX.writeFile(wb, fileName);
+      const { exportToExcelMultiSheet } = await import('../lib/excelUtils');
+      const sheets = exportToExcelMultiSheet(exportData, fileName, 'Kiểm Kê');
+      showToast(`✅ Đã xuất ${exportData.length.toLocaleString()} dòng — ${sheets} sheet!`);
     } catch (err: any) {
       console.error('Export error:', err);
       alert('Lỗi export: ' + err.message);

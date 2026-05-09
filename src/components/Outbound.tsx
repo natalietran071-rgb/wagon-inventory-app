@@ -60,13 +60,26 @@ const Outbound = () => {
 
   const loadOutboundRecords = async () => {
     try {
-      const { data, error } = await supabase
-        .from('outbound_records')
-        .select('*')
-        .order('created_at', { ascending: false });
-        
-      if (error) throw error;
-      setOutboundRecords(data || []);
+      const PAGE = 1000;
+      let all: any[] = [];
+      let page = 0;
+      let hasMore = true;
+      while (hasMore) {
+        const { data, error } = await supabase
+          .from('outbound_records')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .range(page * PAGE, (page + 1) * PAGE - 1);
+        if (error) throw error;
+        if (data && data.length > 0) {
+          all = all.concat(data);
+          hasMore = data.length === PAGE;
+          page++;
+        } else {
+          hasMore = false;
+        }
+      }
+      setOutboundRecords(all);
     } catch (error) {
       console.error('Error fetching outbound records:', error);
     }
@@ -126,27 +139,39 @@ const Outbound = () => {
   const [editingRecord, setEditingRecord] = useState<any | null>(null);
 
   useEffect(() => {
+    const fetchAllPaginated = async (table: string, select: string, orderCol: string, asc: boolean) => {
+      const PAGE = 1000;
+      let all: any[] = [];
+      let page = 0;
+      let hasMore = true;
+      while (hasMore) {
+        const { data, error } = await supabase
+          .from(table)
+          .select(select)
+          .order(orderCol, { ascending: asc })
+          .range(page * PAGE, (page + 1) * PAGE - 1);
+        if (error) throw error;
+        if (data && data.length > 0) {
+          all = all.concat(data);
+          hasMore = data.length === PAGE;
+          page++;
+        } else {
+          hasMore = false;
+        }
+      }
+      return all;
+    };
+
     const fetchData = async () => {
       setLoading(true);
       try {
-        const [invRes, outboundRes] = await Promise.all([
-          supabase
-            .from('inventory')
-            .select('erp, name, name_zh, end_stock, spec')
-            .order('erp', { ascending: true })
-            .limit(1000),
-          supabase
-            .from('outbound_records')
-            .select('*')
-            .order('created_at', { ascending: false })
-            .limit(500)
+        const [invData, outData] = await Promise.all([
+          fetchAllPaginated('inventory', 'erp, name, name_zh, end_stock, spec', 'erp', true),
+          fetchAllPaginated('outbound_records', '*', 'created_at', false)
         ]);
         
-        if (invRes.error) throw invRes.error;
-        if (outboundRes.error) throw outboundRes.error;
-
-        setInventoryItems(invRes.data || []);
-        setOutboundRecords(outboundRes.data || []);
+        setInventoryItems(invData);
+        setOutboundRecords(outData);
       } catch (err) {
         console.error('Error fetching data:', err);
       } finally {
@@ -755,12 +780,12 @@ const Outbound = () => {
     try {
       const today = new Date().toISOString().split('T')[0];
       
-      const { data: dataToExport, error } = await (supabase.rpc('export_outbound', {
+      const { data: dataToExport, error } = await supabase.rpc('export_outbound', {
         p_search: searchQuery || '',
         p_status: filterStatus.toLowerCase() === 'all' ? 'all' : filterStatus,
         p_from_date: filterDate || null,
         p_to_date: filterDate || null
-      }) as any).setHeader('Prefer', 'return=representation');
+      }).limit(100000);
 
       if (error || !dataToExport) throw error || new Error('No data found');
 

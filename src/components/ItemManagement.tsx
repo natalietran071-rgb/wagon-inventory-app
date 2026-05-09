@@ -63,20 +63,35 @@ const ItemManagement = () => {
   const fetchItemsByDate = async () => {
     setLoading(true);
     try {
-      let query = supabase.from('inventory').select('*').order('created_at', { ascending: false });
-      
-      if (fromDate) {
-        query = query.gte('created_at', new Date(fromDate).toISOString());
-      }
-      if (toDate) {
-        const endToDate = new Date(toDate);
-        endToDate.setHours(23, 59, 59, 999);
-        query = query.lte('created_at', endToDate.toISOString());
-      }
+      const PAGE = 1000;
+      let all: any[] = [];
+      let page = 0;
+      let hasMore = true;
+      while (hasMore) {
+        let query = supabase.from('inventory').select('*')
+          .order('created_at', { ascending: false })
+          .range(page * PAGE, (page + 1) * PAGE - 1);
+        
+        if (fromDate) {
+          query = query.gte('created_at', new Date(fromDate).toISOString());
+        }
+        if (toDate) {
+          const endToDate = new Date(toDate);
+          endToDate.setHours(23, 59, 59, 999);
+          query = query.lte('created_at', endToDate.toISOString());
+        }
 
-      // Add a limit to avoid fetching too many records if no filters are applied
-      const { data } = await query.limit(500);
-      if (data) setDbItems(data);
+        const { data, error } = await query;
+        if (error) throw error;
+        if (data && data.length > 0) {
+          all = all.concat(data);
+          hasMore = data.length === PAGE;
+          page++;
+        } else {
+          hasMore = false;
+        }
+      }
+      setDbItems(all);
     } catch (err) {
       console.error('Error fetching items:', err);
     } finally {

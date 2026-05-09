@@ -63,8 +63,7 @@ const Outbound = () => {
       const { data, error } = await supabase
         .from('outbound_records')
         .select('*')
-        .order('created_at', { ascending: false })
-        .limit(500); // Limit initial load for performance
+        .order('created_at', { ascending: false });
         
       if (error) throw error;
       setOutboundRecords(data || []);
@@ -725,7 +724,7 @@ const Outbound = () => {
     });
 
     return result;
-  }, [outboundRecords, filterDate, filterDateType, filterStatus, sortField, sortOrder]);
+  }, [outboundRecords, filterDate, filterDateType, filterStatus, sortField, sortOrder, searchQuery]);
 
   // Pagination logic
   const totalPages = Math.ceil(filteredOutbound.length / itemsPerPage) || 1;
@@ -1497,6 +1496,16 @@ const Outbound = () => {
       {/* View Modal */}
       {viewingRecord && (() => {
         const viewItemDetails = inventoryItems.find(i => i.erp === viewingRecord.erp_code);
+        // If item not found in local cache, fetch it
+        if (!viewItemDetails && viewingRecord.erp_code) {
+          supabase.from('inventory').select('name, spec').eq('erp', viewingRecord.erp_code).single().then(({ data }) => {
+            if (data) {
+              setInventoryItems(prev => [...prev, { erp: viewingRecord.erp_code, name: data.name, spec: data.spec }]);
+            }
+          });
+        }
+        const itemName = viewItemDetails?.name || viewingRecord.item_name || '';
+        const itemSpec = viewItemDetails?.spec || '';
         return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
           <div className="bg-surface-container-lowest rounded-2xl shadow-xl w-full max-w-lg overflow-hidden">
@@ -1533,11 +1542,11 @@ const Outbound = () => {
                 </div>
                 <div className="col-span-2">
                   <p className="text-xs font-bold text-on-surface-variant uppercase mb-1">Tên Vật Tư</p>
-                  <p className="text-sm font-medium text-on-surface">{viewItemDetails?.name || viewingRecord.erp_code || 'Không rõ'}</p>
+                  <p className="text-sm font-medium text-on-surface">{itemName || viewingRecord.erp_code || 'Không rõ'}</p>
                 </div>
                 <div>
                   <p className="text-xs font-bold text-on-surface-variant uppercase mb-1">Quy Cách</p>
-                  <p className="text-sm font-medium text-on-surface">{viewItemDetails?.spec || '-'}</p>
+                  <p className="text-sm font-medium text-on-surface">{itemSpec || '-'}</p>
                 </div>
                 <div>
                   <p className="text-xs font-bold text-on-surface-variant uppercase mb-1">Số Lượng</p>

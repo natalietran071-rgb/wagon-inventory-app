@@ -41,7 +41,7 @@ const Inbound = () => {
     }
   }, [location.state?.scannedErp]);
 
-  const canEdit = profile?.role === 'admin' || profile?.role === 'edit' || user?.email === 'natalietran071@gmail.com' || !profile;
+  const canEdit = profile?.role === 'admin' || profile?.role === 'editor' || user?.email === 'natalietran071@gmail.com' || !profile;
 
   const [selectedRows, setSelectedRows] = useState<string[]>([]);
   const [showDeleteSelectedConfirm, setShowDeleteSelectedConfirm] = useState(false);

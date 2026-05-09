@@ -226,7 +226,7 @@ const ItemManagement = () => {
   };
 
   useEffect(() => {
-    if (profile && profile.role !== 'admin' && profile.role !== 'edit') {
+    if (profile && profile.role !== 'admin' && profile.role !== 'editor') {
       alert('Bạn không có quyền truy cập trang này.');
       navigate('/');
     }

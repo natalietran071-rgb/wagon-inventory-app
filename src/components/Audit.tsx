@@ -130,7 +130,7 @@ const Audit = () => {
 
   // Roles
   const isAdmin = profile?.role === 'admin' || user?.email === 'natalietran071@gmail.com';
-  const canEdit = isAdmin || profile?.role === 'edit';
+  const canEdit = isAdmin || profile?.role === 'editor';
 
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -226,8 +226,7 @@ const Audit = () => {
 
   // Update fetch function to handle all filters
   const fetchPendingAuditItems = async (sessionId?: string) => {
-    const sid = sessionId || currentSession?.id;
-    if (!sid) return;
+    const sid = sessionId || currentSession?.id || '00000000-0000-0000-0000-000000000000';
 
     try {
       const { data, error } = await supabase.rpc('get_audit_items', {
@@ -406,8 +405,37 @@ const Audit = () => {
   };
 
   const handleSaveAuditRecord = async () => {
-    if (!currentSession?.id || currentSession.id === '00000000-0000-0000-0000-000000000000') {
-      return showToast('Không tìm thấy phiên kiểm kê hợp lệ. Vui lòng thử tải lại trang.', true);
+    let sessionId = currentSession?.id;
+    
+    // Auto-create session if none exists
+    if (!sessionId || sessionId === '00000000-0000-0000-0000-000000000000') {
+      try {
+        const { data: newSession, error: sessionError } = await supabase
+          .from('audit_sessions')
+          .insert({
+            session_name: `KIEM-KE-${new Date().toLocaleDateString('vi-VN').replace(/\//g, '')}`,
+            auditor: profile?.full_name || user?.email,
+            auditor_email: user?.email,
+            status: 'Draft'
+          })
+          .select()
+          .single();
+        if (sessionError) throw sessionError;
+        setCurrentSession(newSession);
+        sessionId = newSession.id;
+        
+        const { data: sessions } = await supabase
+          .from('audit_sessions')
+          .select('*')
+          .eq('status', 'Draft')
+          .order('created_at', { ascending: false })
+          .limit(5);
+        setDraftSessions(sessions || []);
+        
+        showToast('Đã tự động tạo phiên kiểm kê mới');
+      } catch (err: any) {
+        return showToast('Lỗi tạo phiên: ' + err.message, true);
+      }
     }
     const selectedErp = activeScanItem?.erp || activeScanItem?.erp_code;
     if (!selectedErp) return showToast('Chưa chọn mã ERP', true);
@@ -422,7 +450,7 @@ const Audit = () => {
         const { data: dupData, error: dupError } = await supabase.rpc('check_audit_duplicate', {
           p_erp_code: selectedErp,
           p_location: locationInput || '',
-          p_session_id: currentSession.id
+          p_session_id: sessionId
         });
         
         if (dupError) throw dupError;
@@ -436,7 +464,7 @@ const Audit = () => {
 
       // 2. Save
       const { error } = await supabase.rpc('save_audit_record_v2', {
-        p_session_id: currentSession.id,
+        p_session_id: sessionId,
         p_erp_code: selectedErp,
         p_actual_qty: Number(actualQtyInput),
         p_location: locationInput || '',
@@ -937,12 +965,7 @@ const Audit = () => {
                 </h4>
              </div>
              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 max-h-[70vh] overflow-y-auto no-scrollbar pb-10">
-                {!(currentSession?.id && currentSession.id !== '00000000-0000-0000-0000-000000000000') ? (
-                  <div className="col-span-full py-20 text-center flex flex-col items-center">
-                    <span className="material-symbols-outlined text-6xl text-primary opacity-20 mb-4 scale-125">rule_folder</span>
-                    <p className="text-on-surface-variant font-black text-sm uppercase tracking-widest italic tracking-tighter">Vui lòng chọn hoặc tạo Phiên Kiểm Kê ở khung "Thông tin" phía trên</p>
-                  </div>
-                ) : !hasSearched ? (
+                {!hasSearched ? (
                   <div className="col-span-full py-20 text-center">
                      <span className="material-symbols-outlined text-6xl text-primary opacity-20 mb-4 scale-125">search_insights</span>
                      <p className="text-on-surface-variant font-black text-sm uppercase tracking-widest italic tracking-tighter">Nhập mã ERP, tên hoặc vị trí rồi bấm Lọc Mã để tìm kiếm</p>

@@ -97,7 +97,7 @@ const Outbound = () => {
     }
   }, [showEditHistory]);
   
-  const canEdit = profile?.role === 'admin' || profile?.role === 'edit' || user?.email === 'natalietran071@gmail.com' || !profile;
+  const canEdit = profile?.role === 'admin' || profile?.role === 'editor' || user?.email === 'natalietran071@gmail.com' || !profile;
   
   // Pagination state
   const [isSearchExpanded, setIsSearchExpanded] = useState(false);
@@ -1533,7 +1533,7 @@ const Outbound = () => {
                 </div>
                 <div className="col-span-2">
                   <p className="text-xs font-bold text-on-surface-variant uppercase mb-1">Tên Vật Tư</p>
-                  <p className="text-sm font-medium text-on-surface">{viewItemDetails?.name || 'Không rõ'}</p>
+                  <p className="text-sm font-medium text-on-surface">{viewItemDetails?.name || viewingRecord.erp_code || 'Không rõ'}</p>
                 </div>
                 <div>
                   <p className="text-xs font-bold text-on-surface-variant uppercase mb-1">Quy Cách</p>

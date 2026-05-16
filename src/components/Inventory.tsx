@@ -537,8 +537,8 @@ const Inventory = () => {
         'Tồn tối thiểu': item.min_stock !== null ? item.min_stock : '',
         'Critical': item.critical ? 'Có' : 'Không',
         'Tồn đầu kỳ': item.start_stock || 0,
-        'Nhập trong kỳ': item.in_period || 0,
-        'Xuất trong kỳ': item.out_period || 0,
+        'Nhập trong kỳ': item.in_period !== undefined ? (item.in_period || 0) : (item.in_qty || 0),
+        'Xuất trong kỳ': item.out_period !== undefined ? (item.out_period || 0) : (item.out_qty || 0),
         'Tồn cuối kỳ': item.end_stock || 0
       }));
 

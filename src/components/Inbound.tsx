@@ -204,28 +204,31 @@ const Inbound = () => {
     const fetchData = async () => {
       setLoading(true);
       try {
-        const [invRes, inboundRes, movementsRes] = await Promise.all([
-          supabase
+        // Fetch inventory with pagination (can be 20K+ rows)
+        const PAGE = 1000;
+        let allInv: any[] = [];
+        let pg = 0;
+        let hasMore = true;
+        while (hasMore) {
+          const { data, error } = await supabase
             .from('inventory')
             .select('erp, name, name_zh, unit, pos, spec, in_qty, end_stock')
-            .order('erp', { ascending: true }),
-          supabase
-            .from('inbound_records')
-            .select('*')
-            .order('created_at', { ascending: false }),
-          supabase
-            .from('movements')
-            .select('*')
-            .eq('type', 'IN')
-            .order('created_at', { ascending: false })
-            .limit(3)
-        ]);
-        
-        if (invRes.error) throw invRes.error;
-        if (inboundRes.error) throw inboundRes.error;
+            .order('erp', { ascending: true })
+            .range(pg * PAGE, (pg + 1) * PAGE - 1);
+          if (error) { console.error('Inventory fetch error:', error); break; }
+          if (data && data.length > 0) { allInv = allInv.concat(data); hasMore = data.length === PAGE; pg++; }
+          else { hasMore = false; }
+        }
 
-        setInventoryItems(invRes.data || []);
-        setInboundRecords(inboundRes.data || []);
+        const movementsRes = await supabase
+          .from('movements')
+          .select('*')
+          .eq('type', 'IN')
+          .order('created_at', { ascending: false })
+          .limit(3);
+
+        setInventoryItems(allInv);
+        await loadInboundRecords();
         setRecentMovements(movementsRes.data || []);
       } catch (err) {
         console.error('Error fetching data:', err);

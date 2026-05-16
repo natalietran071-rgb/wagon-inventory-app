@@ -144,22 +144,25 @@ const Outbound = () => {
     const fetchData = async () => {
       setLoading(true);
       try {
-        const [invRes, outboundRes] = await Promise.all([
-          supabase
+        // Fetch inventory with pagination (can be 20K+ rows)
+        const PAGE = 1000;
+        let allInv: any[] = [];
+        let pg = 0;
+        let hasMore = true;
+        while (hasMore) {
+          const { data, error } = await supabase
             .from('inventory')
             .select('erp, name, name_zh, end_stock, spec, out_qty')
-            .order('erp', { ascending: true }),
-          supabase
-            .from('outbound_records')
-            .select('*')
-            .order('created_at', { ascending: false })
-        ]);
-        
-        if (invRes.error) throw invRes.error;
-        if (outboundRes.error) throw outboundRes.error;
+            .order('erp', { ascending: true })
+            .range(pg * PAGE, (pg + 1) * PAGE - 1);
+          if (error) { console.error('Inventory fetch error:', error); break; }
+          if (data && data.length > 0) { allInv = allInv.concat(data); hasMore = data.length === PAGE; pg++; }
+          else { hasMore = false; }
+        }
+        setInventoryItems(allInv);
 
-        setInventoryItems(invRes.data || []);
-        setOutboundRecords(outboundRes.data || []);
+        // Fetch outbound records (with pagination)
+        await loadOutboundRecords();
       } catch (err) {
         console.error('Error fetching data:', err);
       } finally {
@@ -769,7 +772,7 @@ const Outbound = () => {
     });
 
     return result;
-  }, [outboundRecords, filterDate, filterDateType, filterStatus, sortField, sortOrder]);
+  }, [outboundRecords, filterDate, filterDateType, filterStatus, sortField, sortOrder, searchQuery, inventoryMap]);
 
   // Pagination logic
   const totalPages = Math.ceil(filteredOutbound.length / itemsPerPage) || 1;

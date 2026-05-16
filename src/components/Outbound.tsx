@@ -60,26 +60,14 @@ const Outbound = () => {
 
   const loadOutboundRecords = async () => {
     try {
-      const PAGE = 1000;
-      let all: any[] = [];
-      let page = 0;
-      let hasMore = true;
-      while (hasMore) {
-        const { data, error } = await supabase
-          .from('outbound_records')
-          .select('*')
-          .order('created_at', { ascending: false })
-          .range(page * PAGE, (page + 1) * PAGE - 1);
-        if (error) throw error;
-        if (data && data.length > 0) {
-          all = all.concat(data);
-          hasMore = data.length === PAGE;
-          page++;
-        } else {
-          hasMore = false;
-        }
-      }
-      setOutboundRecords(all);
+      const { data, error } = await supabase
+        .from('outbound_records')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(500); // Limit initial load for performance
+        
+      if (error) throw error;
+      setOutboundRecords(data || []);
     } catch (error) {
       console.error('Error fetching outbound records:', error);
     }
@@ -139,39 +127,27 @@ const Outbound = () => {
   const [editingRecord, setEditingRecord] = useState<any | null>(null);
 
   useEffect(() => {
-    const fetchAllPaginated = async (table: string, select: string, orderCol: string, asc: boolean) => {
-      const PAGE = 1000;
-      let all: any[] = [];
-      let page = 0;
-      let hasMore = true;
-      while (hasMore) {
-        const { data, error } = await supabase
-          .from(table)
-          .select(select)
-          .order(orderCol, { ascending: asc })
-          .range(page * PAGE, (page + 1) * PAGE - 1);
-        if (error) throw error;
-        if (data && data.length > 0) {
-          all = all.concat(data);
-          hasMore = data.length === PAGE;
-          page++;
-        } else {
-          hasMore = false;
-        }
-      }
-      return all;
-    };
-
     const fetchData = async () => {
       setLoading(true);
       try {
-        const [invData, outData] = await Promise.all([
-          fetchAllPaginated('inventory', 'erp, name, name_zh, end_stock, spec', 'erp', true),
-          fetchAllPaginated('outbound_records', '*', 'created_at', false)
+        const [invRes, outboundRes] = await Promise.all([
+          supabase
+            .from('inventory')
+            .select('erp, name, name_zh, end_stock, spec')
+            .order('erp', { ascending: true })
+            .limit(1000),
+          supabase
+            .from('outbound_records')
+            .select('*')
+            .order('created_at', { ascending: false })
+            .limit(500)
         ]);
         
-        setInventoryItems(invData);
-        setOutboundRecords(outData);
+        if (invRes.error) throw invRes.error;
+        if (outboundRes.error) throw outboundRes.error;
+
+        setInventoryItems(invRes.data || []);
+        setOutboundRecords(outboundRes.data || []);
       } catch (err) {
         console.error('Error fetching data:', err);
       } finally {
@@ -510,12 +486,19 @@ const Outbound = () => {
     if (selectedRows.length === 0) return;
     if (!safeConfirm(`Bạn có chắc chắn muốn xóa ${selectedRows.length} lệnh xuất đã chọn?`)) return;
 
-    const { error } = await supabase.from('outbound_records').delete().in('id', selectedRows);
-    if (error) {
-      showToast('Lỗi khi xóa lệnh xuất: ' + error.message, true);
-    } else {
+    showToast(`Đang xóa ${selectedRows.length} lệnh xuất...`);
+    try {
+      // Delete in chunks of 100 to avoid Supabase .in() limit
+      const chunkSize = 100;
+      for (let i = 0; i < selectedRows.length; i += chunkSize) {
+        const chunk = selectedRows.slice(i, i + chunkSize);
+        const { error } = await supabase.from('outbound_records').delete().in('id', chunk);
+        if (error) throw error;
+      }
       setSelectedRows([]);
-      showToast('Xóa thành công!');
+      showToast(`✅ Đã xóa ${selectedRows.length} lệnh xuất!`);
+    } catch (error: any) {
+      showToast('Lỗi khi xóa: ' + error.message, true);
     }
   };
 
@@ -749,7 +732,7 @@ const Outbound = () => {
     });
 
     return result;
-  }, [outboundRecords, filterDate, filterDateType, filterStatus, sortField, sortOrder, searchQuery]);
+  }, [outboundRecords, filterDate, filterDateType, filterStatus, sortField, sortOrder]);
 
   // Pagination logic
   const totalPages = Math.ceil(filteredOutbound.length / itemsPerPage) || 1;
@@ -780,27 +763,26 @@ const Outbound = () => {
     try {
       const today = new Date().toISOString().split('T')[0];
       
-      // Use filteredOutbound (already loaded via pagination) instead of RPC
-      const dataSource = filteredOutbound.length > 0 ? filteredOutbound : outboundRecords;
-      
-      const inventoryMap = new Map(inventoryItems.map(i => [i.erp, i]));
-      
-      const exportData = dataSource.map(item => {
-        const inv = inventoryMap.get(item.erp_code);
-        return {
-          'Mã Phiếu': item.outbound_id,
-          'Đối Tác / Người Nhận': item.partner,
-          'Mã ERP': item.erp_code,
-          'Tên Vật Tư': inv?.name || '',
-          'Quy Cách': inv?.spec || '',
-          'Số Lượng': item.qty,
-          'Ngày Yêu Cầu': item.required_date || item.date,
-          'Ngày Tạo': item.created_at ? new Date(item.created_at).toLocaleString('vi-VN') : '',
-          'Trạng Thái': item.status,
-          'Vị Trí': item.location || '',
-          'Người xử lý': item.initials
-        };
-      });
+      const { data: dataToExport, error } = await (supabase.rpc('export_outbound', {
+        p_search: searchQuery || '',
+        p_status: filterStatus.toLowerCase() === 'all' ? 'all' : filterStatus,
+        p_from_date: filterDate || null,
+        p_to_date: filterDate || null
+      }) as any).setHeader('Prefer', 'return=representation');
+
+      if (error || !dataToExport) throw error || new Error('No data found');
+
+      const exportData = (dataToExport || []).map(item => ({
+        'Mã Phiếu': item.outbound_id,
+        'Đối Tác / Người Nhận': item.partner,
+        'Mã ERP': item.erp_code,
+        'Số Lượng': item.qty,
+        'Ngày Yêu Cầu': item.required_date || item.date,
+        'Ngày Tạo': new Date(item.created_at).toLocaleString(),
+        'Trạng Thái': item.status,
+        'Vị Trí': item.location || '',
+        'Người xử lý': item.initials
+      }));
 
       const fileName = filterDate
         ? `xuat-kho_${filterDate}.xlsx`
@@ -1522,16 +1504,6 @@ const Outbound = () => {
       {/* View Modal */}
       {viewingRecord && (() => {
         const viewItemDetails = inventoryItems.find(i => i.erp === viewingRecord.erp_code);
-        // If item not found in local cache, fetch it
-        if (!viewItemDetails && viewingRecord.erp_code) {
-          supabase.from('inventory').select('name, spec').eq('erp', viewingRecord.erp_code).single().then(({ data }) => {
-            if (data) {
-              setInventoryItems(prev => [...prev, { erp: viewingRecord.erp_code, name: data.name, spec: data.spec }]);
-            }
-          });
-        }
-        const itemName = viewItemDetails?.name || viewingRecord.item_name || '';
-        const itemSpec = viewItemDetails?.spec || '';
         return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
           <div className="bg-surface-container-lowest rounded-2xl shadow-xl w-full max-w-lg overflow-hidden">
@@ -1568,11 +1540,11 @@ const Outbound = () => {
                 </div>
                 <div className="col-span-2">
                   <p className="text-xs font-bold text-on-surface-variant uppercase mb-1">Tên Vật Tư</p>
-                  <p className="text-sm font-medium text-on-surface">{itemName || viewingRecord.erp_code || 'Không rõ'}</p>
+                  <p className="text-sm font-medium text-on-surface">{viewItemDetails?.name || viewingRecord.erp_code || 'Không rõ'}</p>
                 </div>
                 <div>
                   <p className="text-xs font-bold text-on-surface-variant uppercase mb-1">Quy Cách</p>
-                  <p className="text-sm font-medium text-on-surface">{itemSpec || '-'}</p>
+                  <p className="text-sm font-medium text-on-surface">{viewItemDetails?.spec || '-'}</p>
                 </div>
                 <div>
                   <p className="text-xs font-bold text-on-surface-variant uppercase mb-1">Số Lượng</p>

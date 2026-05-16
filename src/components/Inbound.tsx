@@ -63,26 +63,14 @@ const Inbound = () => {
 
   const loadInboundRecords = async () => {
     try {
-      const PAGE = 1000;
-      let all: any[] = [];
-      let page = 0;
-      let hasMore = true;
-      while (hasMore) {
-        const { data, error } = await supabase
-          .from('inbound_records')
-          .select('*')
-          .order('created_at', { ascending: false })
-          .range(page * PAGE, (page + 1) * PAGE - 1);
-        if (error) throw error;
-        if (data && data.length > 0) {
-          all = all.concat(data);
-          hasMore = data.length === PAGE;
-          page++;
-        } else {
-          hasMore = false;
-        }
-      }
-      setInboundRecords(all);
+      const { data, error } = await supabase
+        .from('inbound_records')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(500); // Limit initial load for performance
+        
+      if (error) throw error;
+      setInboundRecords(data || []);
     } catch (error) {
       console.error('Error fetching inbound records:', error);
     }
@@ -199,37 +187,20 @@ const Inbound = () => {
   };
 
   useEffect(() => {
-    const fetchAllPaginated = async (table: string, select: string, orderCol: string, asc: boolean, filters?: any) => {
-      const PAGE = 1000;
-      let all: any[] = [];
-      let page = 0;
-      let hasMore = true;
-      while (hasMore) {
-        let query = supabase
-          .from(table)
-          .select(select)
-          .order(orderCol, { ascending: asc })
-          .range(page * PAGE, (page + 1) * PAGE - 1);
-        if (filters?.eq) query = query.eq(filters.eq[0], filters.eq[1]);
-        const { data, error } = await query;
-        if (error) throw error;
-        if (data && data.length > 0) {
-          all = all.concat(data);
-          hasMore = data.length === PAGE;
-          page++;
-        } else {
-          hasMore = false;
-        }
-      }
-      return all;
-    };
-
     const fetchData = async () => {
       setLoading(true);
       try {
-        const [invData, inboundData, movementsRes] = await Promise.all([
-          fetchAllPaginated('inventory', 'erp, name, name_zh, unit, pos, spec, in_qty, end_stock', 'erp', true),
-          fetchAllPaginated('inbound_records', '*', 'created_at', false),
+        const [invRes, inboundRes, movementsRes] = await Promise.all([
+          supabase
+            .from('inventory')
+            .select('erp, name, name_zh, unit, pos, spec, in_qty, end_stock')
+            .order('erp', { ascending: true })
+            .limit(1000),
+          supabase
+            .from('inbound_records')
+            .select('*')
+            .order('created_at', { ascending: false })
+            .limit(500),
           supabase
             .from('movements')
             .select('*')
@@ -237,9 +208,12 @@ const Inbound = () => {
             .order('created_at', { ascending: false })
             .limit(3)
         ]);
+        
+        if (invRes.error) throw invRes.error;
+        if (inboundRes.error) throw inboundRes.error;
 
-        setInventoryItems(invData);
-        setInboundRecords(inboundData);
+        setInventoryItems(invRes.data || []);
+        setInboundRecords(inboundRes.data || []);
         setRecentMovements(movementsRes.data || []);
       } catch (err) {
         console.error('Error fetching data:', err);
@@ -301,24 +275,39 @@ const Inbound = () => {
 
   const handleSubmitBulk = async (e: React.FormEvent) => {
     e.preventDefault();
-    const rowsToSubmit = inboundRows.filter(r => r.orderId || r.erpCode || r.qty);
+    const allRows = inboundRows.filter(r => r.orderId || r.erpCode || r.qty);
     
-    if (rowsToSubmit.length === 0) {
+    if (allRows.length === 0) {
       alert('Vui lòng điền dữ liệu để nhập kho!');
       return;
     }
-    
-    for (const row of rowsToSubmit) {
-      if (!row.erpCode || !row.qty) {
-        alert('Vui lòng điền đầy đủ mã ERP và số lượng cho các dòng đã có dữ liệu!');
-        return;
+
+    // Separate valid and invalid rows
+    const validRows: typeof allRows = [];
+    const errorRows: { row: number; reason: string; data: string }[] = [];
+
+    allRows.forEach((row, idx) => {
+      if (!row.erpCode && !row.qty) {
+        errorRows.push({ row: idx + 1, reason: 'Thiếu mã ERP và số lượng', data: JSON.stringify(row) });
+      } else if (!row.erpCode) {
+        errorRows.push({ row: idx + 1, reason: 'Thiếu mã ERP', data: `OrderID: ${row.orderId}, Qty: ${row.qty}` });
+      } else if (!row.qty || Math.round(parseFloat(row.qty)) <= 0) {
+        errorRows.push({ row: idx + 1, reason: 'Số lượng = 0 hoặc không hợp lệ', data: `ERP: ${row.erpCode}, Qty: ${row.qty}` });
+      } else {
+        validRows.push(row);
       }
-    }
+    });
     
+    if (validRows.length === 0) {
+      const errorMsg = `Không có dòng nào hợp lệ!\n\nChi tiết lỗi:\n${errorRows.map(e => `Dòng ${e.row}: ${e.reason} — ${e.data}`).join('\n')}`;
+      prompt('Copy lỗi bên dưới:', errorMsg);
+      return;
+    }
+
     setLoading(true);
     
     try {
-      const recordsToInsert = rowsToSubmit.map(row => ({
+      const recordsToInsert = validRows.map(row => ({
         order_id: row.orderId,
         erp_code: row.erpCode,
         qty: Math.round(parseFloat(row.qty)) || 0,
@@ -337,7 +326,7 @@ const Inbound = () => {
       }
 
       // 1. Record movement for dashboard
-      const movementsToInsert = rowsToSubmit.map(row => ({
+      const movementsToInsert = validRows.map(row => ({
         type: 'IN',
         item_name: row.erpCode,
         qty: Math.round(parseFloat(row.qty)) || 0,
@@ -350,22 +339,29 @@ const Inbound = () => {
         await supabase.from('movements').insert(chunk);
       }
 
-      // 2. Update inventory table attributes AND stock levels
-      const erpList = Array.from(new Set(rowsToSubmit.map(r => r.erpCode)));
-      const { data: existingData } = await supabase.from('inventory').select('*').in('erp', erpList);
-      const existingMap = new Map<string, any>((existingData || []).map((i: any) => [i.erp, i]));
+      // 2. Update inventory table — group qty by ERP, update in_qty + end_stock
+      const erpList = Array.from(new Set(validRows.map(r => r.erpCode)));
       
-      const invUpdates = [];
+      // Fetch in chunks to avoid .in() limit
+      let existingMap = new Map<string, any>();
+      for (let i = 0; i < erpList.length; i += 200) {
+        const chunk = erpList.slice(i, i + 200);
+        const { data: existingData } = await supabase.from('inventory').select('*').in('erp', chunk);
+        if (existingData) {
+          existingData.forEach((item: any) => existingMap.set(item.erp, item));
+        }
+      }
+      
       const qtyByErp: Record<string, number> = {};
-      
-      for (const row of rowsToSubmit) {
+      for (const row of validRows) {
          qtyByErp[row.erpCode] = (qtyByErp[row.erpCode] || 0) + (Math.round(parseFloat(row.qty)) || 0);
       }
 
+      const invUpdates = [];
       for (const erp of Object.keys(qtyByErp)) {
          const qty = qtyByErp[erp];
          const existingItem = existingMap.get(erp);
-         const rowEx = rowsToSubmit.find(r => r.erpCode === erp);
+         const rowEx = validRows.find(r => r.erpCode === erp);
          
          if (existingItem) {
            invUpdates.push({
@@ -397,10 +393,16 @@ const Inbound = () => {
 
       setInboundRows(Array.from({ length: 5 }, createEmptyRow));
       await loadInboundRecords();
-      alert('Nhập kho hàng loạt thành công!');
+      
+      if (errorRows.length > 0) {
+        const errorMsg = `Nhập kho thành công ${validRows.length} dòng.\n\n⚠️ ${errorRows.length} dòng bị bỏ qua:\n${errorRows.map(e => `Dòng ${e.row}: ${e.reason} — ${e.data}`).join('\n')}`;
+        prompt('Nhập kho hoàn tất. Copy lỗi bên dưới nếu cần:', errorMsg);
+      } else {
+        alert(`Nhập kho hàng loạt thành công ${validRows.length} dòng!`);
+      }
     } catch (err: any) {
       console.error(err);
-      alert('Lỗi nhập kho: ' + err.message);
+      prompt('Lỗi nhập kho — copy để gửi xử lý:', `Lỗi: ${err.message}\n\nDữ liệu: ${validRows.length} dòng hợp lệ, ${errorRows.length} dòng lỗi`);
     } finally {
       setLoading(false);
     }
@@ -647,24 +649,23 @@ const Inbound = () => {
     try {
       const today = new Date().toISOString().split('T')[0];
       
-      // Use filteredInbound (already loaded via pagination) instead of RPC
-      const dataSource = filteredInbound.length > 0 ? filteredInbound : inboundRecords;
-      
-      const inventoryMap = new Map(inventoryItems.map(i => [i.erp, i]));
-      
-      const exportData = dataSource.map(item => {
-        const inv = inventoryMap.get(item.erp_code);
-        return {
-          'Thời gian': `${item.date || ''} ${item.time || ''}`.trim(),
-          'Order ID': item.order_id || '',
-          'Mã ERP': item.erp_code,
-          'Tên Vật Tư': inv?.name || '',
-          'Số lượng': item.qty,
-          'Đơn vị': item.unit || inv?.unit || '',
-          'Vị trí': item.location || '',
-          'Trạng thái': item.status || ''
-        };
-      });
+      const { data: dataToExport, error } = await (supabase.rpc('export_inbound', {
+        p_search: searchQuery || '',
+        p_from_date: fromDate || null,
+        p_to_date: toDate || null
+      }) as any).setHeader('Prefer', 'return=representation');
+
+      if (error || !dataToExport) throw error || new Error('No data found');
+
+      const exportData = (dataToExport || []).map(item => ({
+        'Thời gian': `${item.date} ${item.time || ''}`,
+        'Order ID': item.order_id,
+        'Mã ERP': item.erp_code,
+        'Số lượng': item.qty,
+        'Đơn vị': item.unit,
+        'Vị trí': item.location || '',
+        'Trạng thái': item.status
+      }));
 
       const fileName = fromDate
         ? `nhap-kho_${fromDate}_${toDate || today}.xlsx`

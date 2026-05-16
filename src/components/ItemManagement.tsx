@@ -490,9 +490,11 @@ const ItemManagement = () => {
       const allInboundRecords: any[] = [];
 
       parsedItems.forEach(item => {
-         if (item._temp_qty > 0) {
+         // Only create inbound records when there is an actual Order ID
+         // Opening stock (tồn đầu kỳ) should NOT create inbound records
+         if (item._temp_qty > 0 && item._temp_order_id) {
             allInboundRecords.push({
-              order_id: item._temp_order_id || `IMP-${bulkImportDate.replace(/-/g, '')}-${item.erp}`,
+              order_id: item._temp_order_id,
               erp_code: item.erp,
               qty: item._temp_qty,
               unit: item.unit,

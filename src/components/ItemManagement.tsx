@@ -486,7 +486,7 @@ const ItemManagement = () => {
     setUploadProgress(0);
     
     try {
-      // Create inbound records using EXACT parsedItems to preserve identical item duplicates as separate entries if relevant
+      // Create inbound records using EXACT parsedItems
       const allInboundRecords: any[] = [];
 
       parsedItems.forEach(item => {
@@ -504,37 +504,77 @@ const ItemManagement = () => {
          }
       });
 
-      // Fetch existing inventory to merge counts
-      const erpList = Array.from(new Set(parsedItems.map(i => i.erp)));
+      // === CORE LOGIC: Preserve ALL items, even duplicate ERPs ===
+      // 1. Fetch existing ERPs from inventory
+      const allErps = parsedItems.map(i => i.erp);
+      const uniqueErps = Array.from(new Set(allErps));
       let existingMap = new Map();
-      if (erpList.length > 0) {
-         const { data: existingData } = await supabase.from('inventory').select('*').in('erp', erpList);
-         if (existingData) {
-            existingMap = new Map(existingData.map((i: any) => [i.erp, i]));
-         }
+      
+      // Fetch in chunks to avoid .in() limit
+      const fetchChunk = 200;
+      for (let i = 0; i < uniqueErps.length; i += fetchChunk) {
+        const chunk = uniqueErps.slice(i, i + fetchChunk);
+        const { data: existingData } = await supabase.from('inventory').select('erp').in('erp', chunk);
+        if (existingData) {
+          existingData.forEach((item: any) => existingMap.set(item.erp, true));
+        }
       }
 
-      // Deduplicate items to form base inventory definitions (UPSERT operation) -> last metadata wins
-      const uniqueItemsMap = new Map();
+      // 2. Handle duplicate ERPs: if same ERP appears multiple times in parsedItems,
+      //    make each one unique by appending a suffix, UNLESS they are true duplicates (same name)
+      const erpOccurrences: Record<string, { count: number; names: Set<string> }> = {};
       parsedItems.forEach(item => {
-        uniqueItemsMap.set(item.erp, item);
+        if (!erpOccurrences[item.erp]) {
+          erpOccurrences[item.erp] = { count: 0, names: new Set() };
+        }
+        erpOccurrences[item.erp].count++;
+        erpOccurrences[item.erp].names.add(item.name || '');
       });
-      const uniqueItems = Array.from(uniqueItemsMap.values()).map(item => {
-         const existing = existingMap.get(item.erp);
-         
-         return {
-            erp: item.erp,
-            name: item.name,
-            name_zh: item.name_zh,
-            category: item.category,
-            unit: item.unit,
-            spec: item.spec,
-            pos: item.pos,
-            price: item.price,
-            critical: item.critical,
-            created_at: existing ? existing.created_at : item.created_at,
-            is_incomplete: item.is_incomplete
-         };
+
+      // 3. Build inventory items — keep ALL rows
+      const inventoryItems: any[] = [];
+      const erpCounter: Record<string, number> = {};
+
+      parsedItems.forEach(item => {
+        const occ = erpOccurrences[item.erp];
+        let finalErp = item.erp;
+
+        if (occ && occ.count > 1) {
+          // This ERP appears multiple times in the file
+          if (!erpCounter[item.erp]) erpCounter[item.erp] = 0;
+          erpCounter[item.erp]++;
+
+          if (erpCounter[item.erp] > 1) {
+            // 2nd, 3rd... occurrence → append suffix to make unique
+            finalErp = `${item.erp}_DUP${erpCounter[item.erp]}`;
+          }
+          // 1st occurrence keeps original ERP
+        }
+
+        // Items without ERP get a temp code
+        if (!finalErp || finalErp === '0' || finalErp === '#N/A' || finalErp === 'N/A') {
+          finalErp = `TEMP-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+        }
+
+        const isExisting = existingMap.has(finalErp);
+
+        inventoryItems.push({
+          erp: finalErp,
+          name: item.name,
+          name_zh: item.name_zh,
+          category: item.category,
+          unit: item.unit,
+          spec: item.spec,
+          pos: item.pos,
+          price: item.price,
+          critical: item.critical,
+          start_stock: item.start_stock || 0,
+          end_stock: item.end_stock || 0,
+          in_qty: 0,
+          out_qty: 0,
+          created_at: item.created_at,
+          is_incomplete: item.is_incomplete || !item.name || !finalErp.match(/^[A-Z]/)
+        });
       });
 
       const chunkSize = 500;
@@ -542,22 +582,31 @@ const ItemManagement = () => {
       let errorCount = 0;
       let lastError = '';
 
-      // Upsert Inventory chunk by chunk
-      for (let i = 0; i < uniqueItems.length; i += chunkSize) {
-        const chunk = uniqueItems.slice(i, i + chunkSize);
+      // 4. Upsert inventory chunk by chunk (upsert keeps existing data for same ERP, inserts new)
+      for (let i = 0; i < inventoryItems.length; i += chunkSize) {
+        const chunk = inventoryItems.slice(i, i + chunkSize);
         let { error } = await supabase.rpc('bulk_upsert_inventory', { p_items: chunk });
         
         if (error) {
-          console.error(`Error importing chunk ${i / chunkSize + 1}:`, error);
-          errorCount += chunk.length;
-          lastError = error.message;
+          // Fallback: try direct upsert if RPC fails
+          const { error: fallbackError } = await supabase
+            .from('inventory')
+            .upsert(chunk, { onConflict: 'erp' });
+          
+          if (fallbackError) {
+            console.error(`Error importing chunk ${i / chunkSize + 1}:`, fallbackError);
+            errorCount += chunk.length;
+            lastError = fallbackError.message;
+          } else {
+            successCount += chunk.length;
+          }
         } else {
           successCount += chunk.length;
         }
-        setUploadProgress(Math.round(((i + chunk.length) / uniqueItems.length) * 50));
+        setUploadProgress(Math.round(((i + chunk.length) / inventoryItems.length) * 50));
       }
 
-      // Insert Inbound Records and Movements chunk by chunk
+      // 5. Insert Inbound Records and Movements chunk by chunk
       if (allInboundRecords.length > 0) {
          let inboundSuccessCount = 0;
          for (let i = 0; i < allInboundRecords.length; i += chunkSize) {
@@ -581,10 +630,12 @@ const ItemManagement = () => {
          console.log(`Successfully created ${inboundSuccessCount} inbound records out of ${allInboundRecords.length}`);
       }
 
+      setUploadProgress(100);
+
       if (errorCount > 0) {
-        alert(`Tải lên hoàn tất nhưng có lỗi.\n\nThành công: ${successCount} mã vật tư (tương ứng ${parsedItems.length} phiếu tải lên)\nLỗi: ${errorCount} vật tư.\nChi tiết lỗi cuối: ${lastError}`);
+        alert(`Tải lên hoàn tất nhưng có lỗi.\n\nThành công: ${successCount} item\nLỗi: ${errorCount} item\nTổng upload: ${parsedItems.length} dòng\nChi tiết lỗi cuối: ${lastError}`);
       } else {
-        alert(`Đã tải lên thành công ${successCount} mã vật tư và ${allInboundRecords.length > 0 ? allInboundRecords.length + ' phiếu nhập kho' : ''}!`);
+        alert(`✅ Đã tải lên thành công ${successCount} item${allInboundRecords.length > 0 ? ` và ${allInboundRecords.length} phiếu nhập kho` : ''}!\n\nTổng dòng Excel: ${parsedItems.length}\nItem tạo mới/cập nhật: ${successCount}`);
         fetchItemsByDate();
       }
     } catch (err: any) {

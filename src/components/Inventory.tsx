@@ -85,7 +85,7 @@ const Inventory = () => {
 
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 50;
-  const [filterProblem, setFilterProblem] = useState<'all' | 'negative' | 'missing' | 'critical'>('all');
+  const [filterProblem, setFilterProblem] = useState<'all' | 'negative' | 'missing' | 'critical' | 'duplicate'>('all');
 
   const fetchInventory = async () => {
     try {
@@ -127,6 +127,23 @@ const Inventory = () => {
           query = query.or('name.is.null,name.eq.""');
         } else if (filterProblem === 'critical') {
           query = query.eq('critical', true);
+        } else if (filterProblem === 'duplicate') {
+          // Fetch all ERPs and find duplicates client-side
+          const PAGE = 1000;
+          let allData: any[] = [];
+          let pg = 0;
+          let hasMore = true;
+          while (hasMore) {
+            const { data: chunk } = await supabase.from('inventory').select('*').order('erp').range(pg * PAGE, (pg + 1) * PAGE - 1);
+            if (chunk && chunk.length > 0) { allData = allData.concat(chunk); hasMore = chunk.length === PAGE; pg++; } else { hasMore = false; }
+          }
+          const erpCount: Record<string, number> = {};
+          allData.forEach((item: any) => { erpCount[item.erp] = (erpCount[item.erp] || 0) + 1; });
+          const dupSet = new Set(Object.keys(erpCount).filter(k => erpCount[k] > 1));
+          const filtered = allData.filter((item: any) => dupSet.has(item.erp)).sort((a: any, b: any) => a.erp.localeCompare(b.erp));
+          setItems(filtered);
+          setTotalFilteredCount(filtered.length);
+          return;
         }
 
         if (tableLocation !== 'All') {
@@ -643,6 +660,13 @@ const Inventory = () => {
         >
           <span className="material-symbols-outlined text-[12px] md:text-[14px]">star</span>
           ⭐ Critical
+        </button>
+        <button
+          onClick={() => setFilterProblem('duplicate')}
+          className={`px-3 md:px-4 py-1 md:py-1.5 rounded-full text-[10px] md:text-xs font-bold transition-all flex items-center gap-1 ${filterProblem === 'duplicate' ? 'bg-violet-500 text-white' : 'bg-violet-500/10 text-violet-700 hover:bg-violet-500/20'}`}
+        >
+          <span className="material-symbols-outlined text-[12px] md:text-[14px]">content_copy</span>
+          Trùng ERP
         </button>
       </div>
 

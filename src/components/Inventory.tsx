@@ -1,61 +1,29 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { supabase } from '../lib/supabase';
-import { useAuth } from '../contexts/AuthContext';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import { useLocation } from 'react-router-dom';
+import { motion, AnimatePresence } from 'motion/react';
 import { useLanguage } from '../contexts/LanguageContext';
-import * as XLSX from 'xlsx';
+import { supabase } from '../lib/supabase';
+import { exportToExcelMultiSheet } from '../lib/excelUtils';
+import { useAuth } from '../contexts/AuthContext';
+import ItemManagement from './ItemManagement';
+import ItemHistoryModal from './ItemHistoryModal';
 
-// ─── Types ───────────────────────────────────────────────────────
-interface InventoryItem {
-  id?: number;
-  erp: string;
-  name: string;
-  name_cn?: string;
-  spec?: string;
-  pos?: string;
-  pos2?: string;
-  unit?: string;
-  start_stock: number;
-  in_qty: number;
-  out_qty: number;
-  end_stock: number;
-}
+const showToast = (msg: string, isError = false) => {
+  try {
+    const div = document.createElement('div');
+    div.className = `fixed top-6 right-6 z-[9999] px-6 py-4 rounded-xl shadow-2xl font-bold text-sm transition-all duration-300 transform translate-y-0 opacity-100 ${isError ? 'bg-error text-on-error' : 'bg-primary text-on-primary'}`;
+    div.innerText = msg;
+    document.body.appendChild(div);
+    setTimeout(() => {
+      div.classList.add('opacity-0', '-translate-y-4');
+      setTimeout(() => div.remove(), 300);
+    }, 3000);
+  } catch(e) {
+    console.log(msg);
+  }
+};
 
-interface PeriodItem {
-  erp: string;
-  name: string;
-  name_cn?: string;
-  spec?: string;
-  pos?: string;
-  pos2?: string;
-  unit?: string;
-  opening_stock: number;
-  in_period: number;
-  out_period: number;
-  closing_stock: number;
-}
-
-interface PeriodStats {
-  total_items: number;
-  items_with_stock: number;
-  items_zero_stock: number;
-  items_negative_stock: number;
-  total_opening: number;
-  total_in: number;
-  total_out: number;
-  total_closing: number;
-}
-
-interface InventoryStats {
-  tong_sku: number;
-  sku_co_ton: number;
-  sku_het_ton: number;
-  tong_nhap: number;
-  tong_xuat: number;
-  tong_ton: number;
-}
-
-// ─── Helpers ─────────────────────────────────────────────────────
-const fmt = (n: number) => (n || 0).toLocaleString('vi-VN');
+const fmt = (n: number) => (n || 0).toLocaleString('en-US');
 
 const getMonthRange = (offset = 0) => {
   const now = new Date();
@@ -72,143 +40,130 @@ const getMonthRange = (offset = 0) => {
 
 const PAGE_SIZE = 50;
 
-// ─── Component ───────────────────────────────────────────────────
-export default function Inventory() {
-  const { profile } = useAuth();
+const Inventory = () => {
+  const { profile, user } = useAuth();
   const { t } = useLanguage();
-  const isAdmin = profile?.role === 'admin';
+  const location = useLocation();
+  const isAdmin = profile?.role === 'admin' || user?.email === 'natalietran071@gmail.com';
+  const canEdit = profile?.role === 'admin' || profile?.role === 'editor' || user?.email === 'natalietran071@gmail.com' || !profile;
 
   // Tab state
   const [activeTab, setActiveTab] = useState<'inventory' | 'report'>('inventory');
 
   // ──── TAB 1: Tồn Kho ────
-  const [data, setData] = useState<InventoryItem[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [search, setSearch] = useState('');
-  const [location, setLocation] = useState('');
+  const [inventoryData, setInventoryData] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [locationFilter, setLocationFilter] = useState('');
   const [locations, setLocations] = useState<string[]>([]);
-  const [stockFilter, setStockFilter] = useState<'all' | 'instock' | 'zero'>('all');
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
+  const [sortField, setSortField] = useState('');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc' | ''>('');
   const [page, setPage] = useState(1);
-  const [stats, setStats] = useState<InventoryStats>({
-    tong_sku: 0, sku_co_ton: 0, sku_het_ton: 0,
-    tong_nhap: 0, tong_xuat: 0, tong_ton: 0,
-  });
-  const [sortCol, setSortCol] = useState<string>('erp');
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
-  const searchTimeout = useRef<any>(null);
+  const [exporting, setExporting] = useState(false);
+  const [alertFilter, setAlertFilter] = useState<'all' | 'negative' | 'missing' | 'critical'>('all');
 
   // ──── TAB 2: Báo cáo theo kỳ ────
-  const [reportData, setReportData] = useState<PeriodItem[]>([]);
-  const [reportStats, setReportStats] = useState<PeriodStats | null>(null);
+  const [reportData, setReportData] = useState<any[]>([]);
+  const [reportStats, setReportStats] = useState<any>(null);
   const [reportLoading, setReportLoading] = useState(false);
   const [reportFrom, setReportFrom] = useState(getMonthRange().from);
   const [reportTo, setReportTo] = useState(getMonthRange().to);
   const [reportSearch, setReportSearch] = useState('');
   const [reportLocation, setReportLocation] = useState('');
+  const [reportSortField, setReportSortField] = useState('');
+  const [reportSortDir, setReportSortDir] = useState<'asc' | 'desc' | ''>('');
   const [reportPage, setReportPage] = useState(1);
-  const [reportSortCol, setReportSortCol] = useState<string>('erp');
-  const [reportSortDir, setReportSortDir] = useState<'asc' | 'desc'>('asc');
-  const reportSearchTimeout = useRef<any>(null);
 
-  // Export state
-  const [exporting, setExporting] = useState(false);
+  // History modal
+  const [historyModal, setHistoryModal] = useState<{ isOpen: boolean; erp: string; name: string }>({ isOpen: false, erp: '', name: '' });
 
-  // ─── Load locations (once) ─────────────────────────────────────
+  // ─── Load locations once ────────────────────
   useEffect(() => {
     const loadLocations = async () => {
-      const { data: locs } = await supabase
+      const { data } = await supabase
         .from('inventory')
         .select('pos')
         .not('pos', 'is', null)
         .not('pos', 'eq', '')
         .order('pos');
-      if (locs) {
-        const unique = [...new Set(locs.map((l: any) => l.pos))].filter(Boolean) as string[];
+      if (data) {
+        const unique = [...new Set(data.map((l: any) => l.pos))].filter(Boolean) as string[];
         setLocations(unique);
       }
     };
     loadLocations();
   }, []);
 
-  // ─── Fetch inventory (Tab 1) ──────────────────────────────────
+  // ─── Fetch inventory (Tab 1) ────────────────
   const fetchInventory = useCallback(async () => {
     setLoading(true);
     try {
-      let query = supabase.from('inventory').select('*', { count: 'exact' });
-
-      if (search) {
-        query = query.or(`erp.ilike.%${search}%,name.ilike.%${search}%`);
-      }
-      if (location) {
-        query = query.ilike('pos', `${location}%`);
-      }
-      if (stockFilter === 'instock') {
-        query = query.gt('end_stock', 0);
-      } else if (stockFilter === 'zero') {
-        query = query.eq('end_stock', 0);
-      }
-
-      query = query.order(sortCol, { ascending: sortDir === 'asc' });
-
-      const { data: items, count, error } = await query;
-
-      if (error) throw error;
-      setData(items || []);
-
-      // Calculate stats from full data
-      if (items) {
-        const totalItems = count || items.length;
-        const inStock = items.filter(i => i.end_stock > 0).length;
-        const zeroStock = items.filter(i => i.end_stock === 0).length;
-        const totalIn = items.reduce((s, i) => s + (i.in_qty || 0), 0);
-        const totalOut = items.reduce((s, i) => s + (i.out_qty || 0), 0);
-        const totalEnd = items.reduce((s, i) => s + (i.end_stock || 0), 0);
-
-        setStats({
-          tong_sku: totalItems,
-          sku_co_ton: inStock,
-          sku_het_ton: zeroStock,
-          tong_nhap: totalIn,
-          tong_xuat: totalOut,
-          tong_ton: totalEnd,
+      if (fromDate && toDate) {
+        // Date filter → use RPC to get period data
+        const { data, error } = await supabase.rpc('get_inventory_by_period', {
+          p_from_date: fromDate,
+          p_to_date: toDate,
+          p_search: searchQuery || '',
+          p_location: locationFilter || '',
         });
+        if (error) throw error;
+        setInventoryData((data || []).map((item: any) => ({
+          ...item,
+          start_stock: item.opening_stock,
+          in_qty: item.in_period,
+          out_qty: item.out_period,
+          end_stock: item.closing_stock,
+        })));
+      } else {
+        // No date filter → direct query
+        let query = supabase.from('inventory').select('*');
+        if (searchQuery) {
+          query = query.or(`erp.ilike.%${searchQuery}%,name.ilike.%${searchQuery}%`);
+        }
+        if (locationFilter) {
+          query = query.ilike('pos', `${locationFilter}%`);
+        }
+        query = query.order('erp', { ascending: true });
+        const { data, error } = await query;
+        if (error) throw error;
+        setInventoryData(data || []);
       }
     } catch (err) {
       console.error('Fetch inventory error:', err);
     } finally {
       setLoading(false);
     }
-  }, [search, location, stockFilter, sortCol, sortDir]);
+  }, [searchQuery, locationFilter, fromDate, toDate]);
 
   useEffect(() => {
     if (activeTab === 'inventory') fetchInventory();
   }, [activeTab, fetchInventory]);
 
-  // ─── Fetch report (Tab 2) ─────────────────────────────────────
+  // ─── Fetch report (Tab 2) ──────────────────
   const fetchReport = useCallback(async () => {
+    if (!reportFrom || !reportTo) return;
     setReportLoading(true);
     try {
-      const [{ data: items, error: itemsErr }, { data: statsData, error: statsErr }] =
-        await Promise.all([
-          supabase.rpc('get_inventory_by_period', {
-            p_from_date: reportFrom,
-            p_to_date: reportTo,
-            p_search: reportSearch,
-            p_location: reportLocation,
-          }),
-          supabase.rpc('get_period_stats', {
-            p_from_date: reportFrom,
-            p_to_date: reportTo,
-            p_search: reportSearch,
-            p_location: reportLocation,
-          }),
-        ]);
-
-      if (itemsErr) throw itemsErr;
-      if (statsErr) throw statsErr;
-
+      const [{ data: items, error: e1 }, { data: stats, error: e2 }] = await Promise.all([
+        supabase.rpc('get_inventory_by_period', {
+          p_from_date: reportFrom,
+          p_to_date: reportTo,
+          p_search: reportSearch || '',
+          p_location: reportLocation || '',
+        }),
+        supabase.rpc('get_period_stats', {
+          p_from_date: reportFrom,
+          p_to_date: reportTo,
+          p_search: reportSearch || '',
+          p_location: reportLocation || '',
+        }),
+      ]);
+      if (e1) throw e1;
+      if (e2) throw e2;
       setReportData(items || []);
-      setReportStats(statsData || null);
+      setReportStats(stats || null);
     } catch (err) {
       console.error('Fetch report error:', err);
     } finally {
@@ -220,65 +175,83 @@ export default function Inventory() {
     if (activeTab === 'report') fetchReport();
   }, [activeTab, fetchReport]);
 
-  // ─── Search debounce ──────────────────────────────────────────
-  const handleSearch = (val: string) => {
-    setSearch(val);
+  // ─── Stats ──────────────────────────────────
+  const stats = useMemo(() => {
+    const d = inventoryData;
+    return {
+      total: d.length,
+      inStock: d.filter(i => (i.end_stock || 0) > 0).length,
+      zeroStock: d.filter(i => (i.end_stock || 0) === 0).length,
+      negative: d.filter(i => (i.end_stock || 0) < 0).length,
+      totalIn: d.reduce((s, i) => s + (i.in_qty || 0), 0),
+      totalOut: d.reduce((s, i) => s + (i.out_qty || 0), 0),
+      totalEnd: d.reduce((s, i) => s + (i.end_stock || 0), 0),
+      totalStart: d.reduce((s, i) => s + (i.start_stock || 0), 0),
+      critical: d.filter(i => i.critical).length,
+      missingInfo: d.filter(i => !i.name || !i.pos).length,
+      itemWithIn: d.filter(i => (i.in_qty || 0) > 0).length,
+    };
+  }, [inventoryData]);
+
+  // ─── Filtered + sorted (Tab 1) ─────────────
+  const filteredData = useMemo(() => {
+    let result = [...inventoryData];
+    if (alertFilter === 'negative') result = result.filter(i => (i.end_stock || 0) < 0);
+    else if (alertFilter === 'missing') result = result.filter(i => !i.name || !i.pos);
+    else if (alertFilter === 'critical') result = result.filter(i => i.critical);
+    if (sortField && sortDir) {
+      result.sort((a: any, b: any) => {
+        const av = a[sortField] ?? '';
+        const bv = b[sortField] ?? '';
+        if (typeof av === 'number' && typeof bv === 'number') return sortDir === 'asc' ? av - bv : bv - av;
+        return sortDir === 'asc' ? String(av).localeCompare(String(bv), 'vi') : String(bv).localeCompare(String(av), 'vi');
+      });
+    }
+    return result;
+  }, [inventoryData, alertFilter, sortField, sortDir]);
+
+  // ─── Filtered + sorted (Tab 2) ─────────────
+  const filteredReport = useMemo(() => {
+    let result = [...reportData];
+    if (reportSortField && reportSortDir) {
+      result.sort((a: any, b: any) => {
+        const av = a[reportSortField] ?? '';
+        const bv = b[reportSortField] ?? '';
+        if (typeof av === 'number' && typeof bv === 'number') return reportSortDir === 'asc' ? av - bv : bv - av;
+        return reportSortDir === 'asc' ? String(av).localeCompare(String(bv), 'vi') : String(bv).localeCompare(String(av), 'vi');
+      });
+    }
+    return result;
+  }, [reportData, reportSortField, reportSortDir]);
+
+  // ─── Pagination ─────────────────────────────
+  const pagedData = filteredData.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const totalPages = Math.ceil(filteredData.length / PAGE_SIZE);
+  const pagedReport = filteredReport.slice((reportPage - 1) * PAGE_SIZE, reportPage * PAGE_SIZE);
+  const reportTotalPages = Math.ceil(filteredReport.length / PAGE_SIZE);
+
+  // ─── Sort with 3-state (asc → desc → off) ──
+  const handleSort = (field: string) => {
+    if (sortField === field) {
+      if (sortDir === 'asc') setSortDir('desc');
+      else { setSortField(''); setSortDir(''); }
+    } else { setSortField(field); setSortDir('asc'); }
     setPage(1);
-    if (searchTimeout.current) clearTimeout(searchTimeout.current);
-    searchTimeout.current = setTimeout(() => {}, 300);
   };
-
-  const handleReportSearch = (val: string) => {
-    setReportSearch(val);
-    setReportPage(1);
-    if (reportSearchTimeout.current) clearTimeout(reportSearchTimeout.current);
-    reportSearchTimeout.current = setTimeout(() => {}, 300);
-  };
-
-  // ─── Sort handlers ────────────────────────────────────────────
-  const handleSort = (col: string) => {
-    if (sortCol === col) {
-      setSortDir(d => (d === 'asc' ? 'desc' : 'asc'));
-    } else {
-      setSortCol(col);
-      setSortDir('asc');
-    }
-    setPage(1);
-  };
-
-  const handleReportSort = (col: string) => {
-    if (reportSortCol === col) {
-      setReportSortDir(d => (d === 'asc' ? 'desc' : 'asc'));
-    } else {
-      setReportSortCol(col);
-      setReportSortDir('asc');
-    }
+  const handleReportSort = (field: string) => {
+    if (reportSortField === field) {
+      if (reportSortDir === 'asc') setReportSortDir('desc');
+      else { setReportSortField(''); setReportSortDir(''); }
+    } else { setReportSortField(field); setReportSortDir('asc'); }
     setReportPage(1);
   };
 
-  // ─── Sort data locally for report ─────────────────────────────
-  const sortedReportData = [...reportData].sort((a: any, b: any) => {
-    const av = a[reportSortCol] ?? '';
-    const bv = b[reportSortCol] ?? '';
-    if (typeof av === 'number' && typeof bv === 'number') {
-      return reportSortDir === 'asc' ? av - bv : bv - av;
-    }
-    return reportSortDir === 'asc'
-      ? String(av).localeCompare(String(bv), 'vi')
-      : String(bv).localeCompare(String(av), 'vi');
-  });
+  const SortIcon = ({ field, cur, dir }: { field: string; cur: string; dir: string }) => {
+    if (field !== cur || !dir) return <span className="ml-1 opacity-30 text-[9px]">↕</span>;
+    return <span className="ml-1 text-[9px]">{dir === 'asc' ? '▲' : '▼'}</span>;
+  };
 
-  // ─── Pagination ───────────────────────────────────────────────
-  const paginatedData = data.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
-  const totalPages = Math.ceil(data.length / PAGE_SIZE);
-
-  const paginatedReport = sortedReportData.slice(
-    (reportPage - 1) * PAGE_SIZE,
-    reportPage * PAGE_SIZE
-  );
-  const reportTotalPages = Math.ceil(sortedReportData.length / PAGE_SIZE);
-
-  // ─── Quick month select ───────────────────────────────────────
+  // ─── Quick month ────────────────────────────
   const handleQuickMonth = (offset: number) => {
     const range = getMonthRange(offset);
     setReportFrom(range.from);
@@ -286,593 +259,360 @@ export default function Inventory() {
     setReportPage(1);
   };
 
-  // ─── EXPORT EXCEL ─────────────────────────────────────────────
+  // ─── Export Excel ───────────────────────────
   const handleExport = async () => {
     setExporting(true);
+    showToast('Đang xuất dữ liệu...');
     try {
-      let exportData: any[] = [];
-      const hasDateFilter = reportFrom && reportTo && activeTab === 'report';
+      const isReportTab = activeTab === 'report';
+      const pFromDate = isReportTab ? reportFrom : (fromDate || '2020-01-01');
+      const pToDate = isReportTab ? reportTo : (toDate || new Date().toISOString().split('T')[0]);
+      const pSearch = isReportTab ? reportSearch : searchQuery;
+      const pLocation = isReportTab ? reportLocation : locationFilter;
 
-      if (hasDateFilter) {
-        // Export theo kỳ đã chọn → dùng RPC
-        const { data: items, error } = await supabase.rpc('get_inventory_by_period', {
-          p_from_date: reportFrom,
-          p_to_date: reportTo,
-          p_search: reportSearch || '',
-          p_location: reportLocation || '',
-        });
-        if (error) throw error;
+      const { data, error } = await supabase.rpc('get_inventory_by_period', {
+        p_from_date: pFromDate, p_to_date: pToDate, p_search: pSearch || '', p_location: pLocation || '',
+      });
+      if (error) throw error;
+      if (!data || data.length === 0) { showToast('Không có dữ liệu để xuất', true); setExporting(false); return; }
 
-        exportData = (items || []).map((item: PeriodItem, idx: number) => ({
-          'STT': idx + 1,
-          'Mã ERP': item.erp,
-          'Tên Item': item.name,
-          'Tên CN': item.name_cn || '',
-          'Quy cách': item.spec || '',
-          'Vị trí': item.pos || '',
-          'ĐVT': item.unit || '',
-          'Tồn đầu kỳ': item.opening_stock || 0,
-          'Nhập trong kỳ': item.in_period || 0,
-          'Xuất trong kỳ': item.out_period || 0,
-          'Tồn cuối kỳ': item.closing_stock || 0,
-        }));
-      } else {
-        // Export toàn bộ → dùng RPC với date range rất rộng để lấy đủ nhập/xuất
-        const minDate = '2020-01-01';
-        const maxDate = new Date().toISOString().split('T')[0];
+      const exportData = data.map((item: any, idx: number) => ({
+        'STT': idx + 1, 'Mã ERP': item.erp, 'Tên Item': item.name || '', 'Tên CN': item.name_cn || '',
+        'Quy cách': item.spec || '', 'Vị trí': item.pos || '', 'ĐVT': item.unit || '',
+        'Tồn đầu kỳ': item.opening_stock || 0, 'Nhập trong kỳ': item.in_period || 0,
+        'Xuất trong kỳ': item.out_period || 0, 'Tồn cuối kỳ': item.closing_stock || 0,
+      }));
 
-        const { data: items, error } = await supabase.rpc('get_inventory_by_period', {
-          p_from_date: minDate,
-          p_to_date: maxDate,
-          p_search: search || '',
-          p_location: location || '',
-        });
-        if (error) throw error;
-
-        exportData = (items || []).map((item: PeriodItem, idx: number) => ({
-          'STT': idx + 1,
-          'Mã ERP': item.erp,
-          'Tên Item': item.name,
-          'Tên CN': item.name_cn || '',
-          'Quy cách': item.spec || '',
-          'Vị trí': item.pos || '',
-          'ĐVT': item.unit || '',
-          'Tồn đầu kỳ': item.opening_stock || 0,
-          'Nhập trong kỳ': item.in_period || 0,
-          'Xuất trong kỳ': item.out_period || 0,
-          'Tồn cuối kỳ': item.closing_stock || 0,
-        }));
-      }
-
-      if (exportData.length === 0) {
-        alert('Không có dữ liệu để xuất');
-        return;
-      }
-
-      // Create workbook — 1 sheet duy nhất, xuất hết toàn bộ bất kể bao nhiêu item
-      const wb = XLSX.utils.book_new();
-      const ws = XLSX.utils.json_to_sheet(exportData);
-
-      // Set column widths
-      ws['!cols'] = [
-        { wch: 6 },   // STT
-        { wch: 18 },  // Mã ERP
-        { wch: 40 },  // Tên Item
-        { wch: 30 },  // Tên CN
-        { wch: 25 },  // Quy cách
-        { wch: 12 },  // Vị trí
-        { wch: 8 },   // ĐVT
-        { wch: 14 },  // Tồn đầu kỳ
-        { wch: 14 },  // Nhập trong kỳ
-        { wch: 14 },  // Xuất trong kỳ
-        { wch: 14 },  // Tồn cuối kỳ
-      ];
-
-      XLSX.utils.book_append_sheet(wb, ws, 'Tồn Kho');
-
-      // File name
-      const dateStr = hasDateFilter
-        ? `_${reportFrom}_${reportTo}`
-        : `_all_${new Date().toISOString().split('T')[0]}`;
-      const fileName = `TonKho${dateStr}.xlsx`;
-
-      XLSX.writeFile(wb, fileName);
-    } catch (err) {
+      const today = new Date().toISOString().split('T')[0];
+      const hasDateFilter = isReportTab || (fromDate && toDate);
+      const dateStr = hasDateFilter ? `_${pFromDate}_${pToDate}` : `_all_${today}`;
+      const sheets = exportToExcelMultiSheet(exportData, `TonKho${dateStr}.xlsx`, 'Tồn Kho');
+      showToast(`✅ Đã xuất ${exportData.length.toLocaleString()} dòng — ${sheets} sheet!`);
+    } catch (err: any) {
       console.error('Export error:', err);
-      alert('Lỗi khi xuất Excel. Vui lòng thử lại.');
-    } finally {
-      setExporting(false);
-    }
+      showToast('Lỗi: ' + err.message, true);
+    } finally { setExporting(false); }
   };
 
-  // ─── Sort indicator ───────────────────────────────────────────
-  const SortIcon = ({ col, currentCol, dir }: { col: string; currentCol: string; dir: string }) => (
-    <span style={{ opacity: col === currentCol ? 1 : 0.3, marginLeft: 4, fontSize: 11 }}>
-      {col === currentCol ? (dir === 'asc' ? '▲' : '▼') : '↕'}
-    </span>
-  );
+  // ─── Report sums ────────────────────────────
+  const reportSums = useMemo(() => ({
+    opening: filteredReport.reduce((s, i) => s + (i.opening_stock || 0), 0),
+    inPeriod: filteredReport.reduce((s, i) => s + (i.in_period || 0), 0),
+    outPeriod: filteredReport.reduce((s, i) => s + (i.out_period || 0), 0),
+    closing: filteredReport.reduce((s, i) => s + (i.closing_stock || 0), 0),
+  }), [filteredReport]);
 
-  // ─── Pagination component ────────────────────────────────────
-  const Pagination = ({
-    current, total, onChange,
-  }: { current: number; total: number; onChange: (p: number) => void }) => {
+  // ─── Render pagination ──────────────────────
+  const renderPagination = (currentPage: number, total: number, setFn: (p: number) => void, itemCount: number) => {
     if (total <= 1) return null;
-    const pages: number[] = [];
-    const start = Math.max(1, current - 2);
-    const end = Math.min(total, current + 2);
-    for (let i = start; i <= end; i++) pages.push(i);
-
     return (
-      <div style={{
-        display: 'flex', gap: 4, justifyContent: 'center',
-        alignItems: 'center', padding: '12px 0', flexWrap: 'wrap',
-      }}>
-        <span style={{ fontSize: 12, color: '#64748b', marginRight: 8 }}>
-          Trang {current}/{total}
-        </span>
-        {current > 1 && (
-          <>
-            <button onClick={() => onChange(1)} style={pgBtnStyle}>«</button>
-            <button onClick={() => onChange(current - 1)} style={pgBtnStyle}>‹</button>
-          </>
-        )}
-        {pages.map(p => (
-          <button
-            key={p}
-            onClick={() => onChange(p)}
-            style={{
-              ...pgBtnStyle,
-              ...(p === current ? { background: '#1a3a5c', color: '#fff', borderColor: '#1a3a5c' } : {}),
-            }}
-          >
-            {p}
-          </button>
-        ))}
-        {current < total && (
-          <>
-            <button onClick={() => onChange(current + 1)} style={pgBtnStyle}>›</button>
-            <button onClick={() => onChange(total)} style={pgBtnStyle}>»</button>
-          </>
-        )}
+      <div className="flex items-center justify-center gap-2 p-4 border-t border-outline-variant/10 flex-wrap">
+        <span className="text-[10px] font-bold text-on-surface-variant">Trang {currentPage}/{total} ({itemCount.toLocaleString()} item)</span>
+        {currentPage > 1 && (<>
+          <button onClick={() => setFn(1)} className="px-2 py-1 rounded-lg bg-surface-container-high text-xs font-bold hover:bg-primary/10">«</button>
+          <button onClick={() => setFn(currentPage - 1)} className="px-2 py-1 rounded-lg bg-surface-container-high text-xs font-bold hover:bg-primary/10">‹</button>
+        </>)}
+        {Array.from({ length: Math.min(5, total) }, (_, i) => {
+          const p = Math.max(1, Math.min(currentPage - 2, total - 4)) + i;
+          if (p > total) return null;
+          return <button key={p} onClick={() => setFn(p)} className={`px-3 py-1 rounded-lg text-xs font-bold ${p === currentPage ? 'bg-primary text-on-primary' : 'bg-surface-container-high hover:bg-primary/10'}`}>{p}</button>;
+        })}
+        {currentPage < total && (<>
+          <button onClick={() => setFn(currentPage + 1)} className="px-2 py-1 rounded-lg bg-surface-container-high text-xs font-bold hover:bg-primary/10">›</button>
+          <button onClick={() => setFn(total)} className="px-2 py-1 rounded-lg bg-surface-container-high text-xs font-bold hover:bg-primary/10">»</button>
+        </>)}
       </div>
     );
   };
 
-  // ═══════════════════════════════════════════════════════════════
+  // ════════════════════════════════════════════
   // RENDER
-  // ═══════════════════════════════════════════════════════════════
+  // ════════════════════════════════════════════
   return (
-    <div style={{ padding: '0' }}>
-      {/* ── Tabs ── */}
-      <div style={{
-        display: 'flex', borderBottom: '2px solid #e2e8f0', marginBottom: 16,
-        background: '#fff', position: 'sticky', top: 0, zIndex: 10,
-      }}>
-        <button
-          onClick={() => setActiveTab('inventory')}
-          style={{
-            ...tabStyle,
-            ...(activeTab === 'inventory' ? activeTabStyle : {}),
-          }}
-        >
-          📦 Tồn Kho
-        </button>
-        <button
-          onClick={() => setActiveTab('report')}
-          style={{
-            ...tabStyle,
-            ...(activeTab === 'report' ? activeTabStyle : {}),
-          }}
-        >
-          📊 Báo Cáo Theo Kỳ
-        </button>
-      </div>
-
-      {/* ══════════ TAB 1: TỒN KHO ══════════ */}
-      {activeTab === 'inventory' && (
+    <div className="space-y-6 md:space-y-10">
+      {/* Header */}
+      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
         <div>
-          {/* Dashboard Stats */}
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
-            gap: 10, marginBottom: 16,
-          }}>
-            <StatCard label="Tổng Item" value={fmt(stats.tong_sku)} color="#1a3a5c" icon="📦" />
-            <StatCard label="Có tồn kho" value={fmt(stats.sku_co_ton)} color="#16a34a" icon="✅" />
-            <StatCard label="Tồn = 0" value={fmt(stats.sku_het_ton)} color="#dc2626" icon="⚠️" />
-            <StatCard label="Tổng nhập" value={fmt(stats.tong_nhap)} color="#2563eb" icon="📥" />
-            <StatCard label="Tổng xuất" value={fmt(stats.tong_xuat)} color="#ea580c" icon="📤" />
-            <StatCard label="Tổng tồn" value={fmt(stats.tong_ton)} color="#7c3aed" icon="🏭" />
-          </div>
-
-          {/* Filters */}
-          <div style={{
-            display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center',
-          }}>
-            <input
-              type="text"
-              placeholder="🔍 Tìm mã ERP, tên item..."
-              value={search}
-              onChange={e => handleSearch(e.target.value)}
-              style={inputStyle}
-            />
-            <select
-              value={location}
-              onChange={e => { setLocation(e.target.value); setPage(1); }}
-              style={{ ...inputStyle, maxWidth: 160 }}
-            >
-              <option value="">Tất cả vị trí</option>
-              {locations.map(l => (
-                <option key={l} value={l}>{l}</option>
-              ))}
-            </select>
-            <select
-              value={stockFilter}
-              onChange={e => { setStockFilter(e.target.value as any); setPage(1); }}
-              style={{ ...inputStyle, maxWidth: 160 }}
-            >
-              <option value="all">Tất cả</option>
-              <option value="instock">Có tồn kho</option>
-              <option value="zero">Tồn = 0</option>
-            </select>
-            <button onClick={handleExport} disabled={exporting} style={exportBtnStyle}>
-              {exporting ? '⏳ Đang xuất...' : '📥 Xuất Excel'}
+          <h2 className="text-3xl md:text-4xl font-bold font-manrope text-on-surface tracking-tight mb-1 md:mb-2">{t('inventory')}</h2>
+          <p className="text-xs md:text-sm text-on-surface-variant font-medium">Theo dõi và quản lý vật tư trong thời gian thực.</p>
+        </div>
+        <div className="flex gap-2 items-center">
+          <div className="flex bg-surface-container-low p-1 rounded-xl w-full md:w-auto">
+            <button onClick={() => setActiveTab('inventory')} className={`flex-1 md:flex-none px-4 md:px-6 py-2 rounded-lg text-xs md:text-sm font-bold transition-all ${activeTab === 'inventory' ? 'bg-surface-container-lowest text-primary shadow-sm' : 'text-on-surface-variant hover:text-primary'}`}>
+              📦 Tồn Kho
+            </button>
+            <button onClick={() => setActiveTab('report')} className={`flex-1 md:flex-none px-4 md:px-6 py-2 rounded-lg text-xs md:text-sm font-bold transition-all ${activeTab === 'report' ? 'bg-surface-container-lowest text-primary shadow-sm' : 'text-on-surface-variant hover:text-primary'}`}>
+              📊 Báo Cáo Theo Kỳ
             </button>
           </div>
-
-          {/* Table */}
-          {loading ? (
-            <div style={emptyStyle}>⏳ Đang tải dữ liệu...</div>
-          ) : data.length === 0 ? (
-            <div style={emptyStyle}>Không có dữ liệu</div>
-          ) : (
-            <>
-              <div style={{ overflowX: 'auto', borderRadius: 8, border: '1px solid #e2e8f0' }}>
-                <table style={tableStyle}>
-                  <thead>
-                    <tr>
-                      <th style={thStyle}>STT</th>
-                      <th style={{ ...thStyle, cursor: 'pointer' }} onClick={() => handleSort('erp')}>
-                        Mã ERP <SortIcon col="erp" currentCol={sortCol} dir={sortDir} />
-                      </th>
-                      <th style={{ ...thStyle, cursor: 'pointer' }} onClick={() => handleSort('name')}>
-                        Tên Item <SortIcon col="name" currentCol={sortCol} dir={sortDir} />
-                      </th>
-                      <th style={thStyle}>Vị trí</th>
-                      <th style={thStyle}>ĐVT</th>
-                      <th style={{ ...thStyle, cursor: 'pointer', textAlign: 'right' }} onClick={() => handleSort('start_stock')}>
-                        <div>Tồn đầu kỳ</div>
-                        <div style={thSumStyle}>{fmt(data.reduce((s, i) => s + (i.start_stock || 0), 0))}</div>
-                        <SortIcon col="start_stock" currentCol={sortCol} dir={sortDir} />
-                      </th>
-                      <th style={{ ...thStyle, cursor: 'pointer', textAlign: 'right', color: '#16a34a' }} onClick={() => handleSort('in_qty')}>
-                        <div>Nhập</div>
-                        <div style={thSumStyle}>{fmt(stats.tong_nhap)}</div>
-                        <SortIcon col="in_qty" currentCol={sortCol} dir={sortDir} />
-                      </th>
-                      <th style={{ ...thStyle, cursor: 'pointer', textAlign: 'right', color: '#dc2626' }} onClick={() => handleSort('out_qty')}>
-                        <div>Xuất</div>
-                        <div style={thSumStyle}>{fmt(stats.tong_xuat)}</div>
-                        <SortIcon col="out_qty" currentCol={sortCol} dir={sortDir} />
-                      </th>
-                      <th style={{ ...thStyle, cursor: 'pointer', textAlign: 'right', color: '#1a3a5c' }} onClick={() => handleSort('end_stock')}>
-                        <div>Tồn cuối</div>
-                        <div style={thSumStyle}>{fmt(stats.tong_ton)}</div>
-                        <SortIcon col="end_stock" currentCol={sortCol} dir={sortDir} />
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {paginatedData.map((item, idx) => (
-                      <tr key={item.erp} style={{ background: idx % 2 === 0 ? '#fff' : '#f8fafc' }}>
-                        <td style={tdStyle}>{(page - 1) * PAGE_SIZE + idx + 1}</td>
-                        <td style={{ ...tdStyle, fontWeight: 600, fontFamily: 'monospace', fontSize: 12 }}>
-                          {item.erp}
-                        </td>
-                        <td style={tdStyle}>
-                          <div style={{ fontWeight: 500 }}>{item.name}</div>
-                          {item.name_cn && (
-                            <div style={{ fontSize: 11, color: '#94a3b8' }}>{item.name_cn}</div>
-                          )}
-                          {item.spec && (
-                            <div style={{ fontSize: 11, color: '#94a3b8' }}>{item.spec}</div>
-                          )}
-                        </td>
-                        <td style={tdStyle}>
-                          <span style={badgeLocStyle}>{item.pos || '—'}</span>
-                        </td>
-                        <td style={{ ...tdStyle, fontSize: 12 }}>{item.unit || ''}</td>
-                        <td style={{ ...tdStyle, textAlign: 'right', fontFamily: 'monospace' }}>
-                          {fmt(item.start_stock)}
-                        </td>
-                        <td style={{
-                          ...tdStyle, textAlign: 'right', fontFamily: 'monospace',
-                          color: item.in_qty > 0 ? '#16a34a' : '#94a3b8',
-                        }}>
-                          {item.in_qty > 0 ? `+${fmt(item.in_qty)}` : fmt(item.in_qty)}
-                        </td>
-                        <td style={{
-                          ...tdStyle, textAlign: 'right', fontFamily: 'monospace',
-                          color: item.out_qty > 0 ? '#dc2626' : '#94a3b8',
-                        }}>
-                          {item.out_qty > 0 ? `-${fmt(item.out_qty)}` : fmt(item.out_qty)}
-                        </td>
-                        <td style={{
-                          ...tdStyle, textAlign: 'right', fontWeight: 700, fontFamily: 'monospace',
-                          color: item.end_stock > 0 ? '#1a3a5c' : item.end_stock < 0 ? '#dc2626' : '#94a3b8',
-                        }}>
-                          {fmt(item.end_stock)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <Pagination current={page} total={totalPages} onChange={setPage} />
-            </>
-          )}
         </div>
-      )}
+      </div>
 
-      {/* ══════════ TAB 2: BÁO CÁO THEO KỲ ══════════ */}
-      {activeTab === 'report' && (
-        <div>
-          {/* Period selector */}
-          <div style={{
-            background: '#fff', borderRadius: 10, padding: 14,
-            border: '1px solid #e2e8f0', marginBottom: 14,
-          }}>
-            <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 10, color: '#1a3a5c' }}>
-              📅 Chọn kỳ báo cáo
-            </div>
+      {/* ═══════ TAB 1: TỒN KHO ═══════ */}
+      {activeTab === 'inventory' && (<>
+        {/* Search */}
+        <div className="bg-surface-container-lowest rounded-2xl md:rounded-[2rem] p-4 md:p-6 shadow-sm border border-outline-variant/10">
+          <div className="relative">
+            <span className="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-outline-variant">search</span>
+            <input type="text" placeholder="Tìm kiếm..." value={searchQuery} onChange={e => { setSearchQuery(e.target.value); setPage(1); }}
+              className="w-full bg-surface-container-low border-none rounded-xl pl-12 pr-4 py-3 text-sm font-medium focus:ring-2 focus:ring-primary/20 outline-none" />
+          </div>
+        </div>
 
-            {/* Quick month buttons */}
-            <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
-              {[0, -1, -2, -3].map(offset => {
-                const range = getMonthRange(offset);
-                const isActive = reportFrom === range.from && reportTo === range.to;
-                return (
-                  <button
-                    key={offset}
-                    onClick={() => handleQuickMonth(offset)}
-                    style={{
-                      padding: '6px 12px', borderRadius: 6, fontSize: 12, fontWeight: 600,
-                      border: '1px solid',
-                      cursor: 'pointer',
-                      background: isActive ? '#1a3a5c' : '#f8fafc',
-                      color: isActive ? '#fff' : '#475569',
-                      borderColor: isActive ? '#1a3a5c' : '#cbd5e1',
-                    }}
-                  >
-                    {range.label}
-                  </button>
-                );
-              })}
-            </div>
+        {/* Alert pills */}
+        <div className="flex gap-2 flex-wrap items-center">
+          <span className="text-xs font-bold text-on-surface-variant">Cảnh báo:</span>
+          {([
+            { key: 'all', label: 'Tất cả', active: 'bg-primary text-on-primary' },
+            { key: 'negative', label: 'Tồn âm', active: 'bg-error/10 text-error border border-error/30' },
+            { key: 'missing', label: 'Thiếu TT', active: 'bg-secondary/10 text-secondary border border-secondary/30' },
+            { key: 'critical', label: '⭐ Critical', active: 'bg-tertiary/10 text-tertiary border border-tertiary/30' },
+          ] as const).map(f => (
+            <button key={f.key} onClick={() => { setAlertFilter(f.key); setPage(1); }}
+              className={`px-3 py-1.5 rounded-full text-[10px] md:text-xs font-bold transition-all ${alertFilter === f.key ? f.active : 'bg-surface-container-high text-on-surface-variant hover:bg-surface-container-highest'}`}>
+              {f.label}
+            </button>
+          ))}
+        </div>
 
-            {/* Custom date range */}
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-              <input
-                type="date"
-                value={reportFrom}
-                onChange={e => { setReportFrom(e.target.value); setReportPage(1); }}
-                style={{ ...inputStyle, maxWidth: 160 }}
-              />
-              <span style={{ color: '#94a3b8', fontSize: 13 }}>→</span>
-              <input
-                type="date"
-                value={reportTo}
-                onChange={e => { setReportTo(e.target.value); setReportPage(1); }}
-                style={{ ...inputStyle, maxWidth: 160 }}
-              />
-              <input
-                type="text"
-                placeholder="🔍 Tìm mã ERP, tên item..."
-                value={reportSearch}
-                onChange={e => handleReportSearch(e.target.value)}
-                style={inputStyle}
-              />
-              <select
-                value={reportLocation}
-                onChange={e => { setReportLocation(e.target.value); setReportPage(1); }}
-                style={{ ...inputStyle, maxWidth: 160 }}
-              >
-                <option value="">Tất cả vị trí</option>
-                {locations.map(l => (
-                  <option key={l} value={l}>{l}</option>
-                ))}
-              </select>
-              <button onClick={handleExport} disabled={exporting} style={exportBtnStyle}>
-                {exporting ? '⏳ Đang xuất...' : '📥 Xuất Excel'}
-              </button>
+        {/* Dashboard */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
+          <div className="bg-surface-container-lowest rounded-2xl p-4 md:p-5 shadow-sm border border-outline-variant/10">
+            <div className="flex items-center gap-2 mb-2"><div className="w-8 h-8 rounded-xl bg-primary/10 flex items-center justify-center"><span className="material-symbols-outlined text-primary text-lg">inventory_2</span></div></div>
+            <div className="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider">Tổng mã hàng (Item)</div>
+            <div className="text-xl md:text-2xl font-black font-manrope text-on-surface mt-1">{fmt(stats.total)}</div>
+          </div>
+          <div className="bg-surface-container-lowest rounded-2xl p-4 md:p-5 shadow-sm border border-outline-variant/10 col-span-1 md:col-span-2">
+            <div className="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider mb-2">📊 Thống kê lưu lượng</div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-x-4 gap-y-2">
+              <div><div className="text-[9px] font-bold text-on-surface-variant uppercase">Item có nhập</div><div className="text-sm md:text-base font-black text-primary">{fmt(stats.itemWithIn)}</div></div>
+              <div><div className="text-[9px] font-bold text-on-surface-variant uppercase">Tổng nhập</div><div className="text-sm md:text-base font-black text-secondary">{fmt(stats.totalIn)}</div></div>
+              <div><div className="text-[9px] font-bold text-on-surface-variant uppercase">Tổng xuất</div><div className="text-sm md:text-base font-black text-error">{fmt(stats.totalOut)}</div></div>
+              <div><div className="text-[9px] font-bold text-on-surface-variant uppercase">Tồn kho</div><div className="text-sm md:text-base font-black text-tertiary">{fmt(stats.totalEnd)}</div></div>
             </div>
           </div>
-
-          {/* Report Dashboard */}
-          {reportStats && (
-            <div style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
-              gap: 10, marginBottom: 14,
-            }}>
-              <StatCard label="Tổng Item" value={fmt(reportStats.total_items)} color="#1a3a5c" icon="📦" />
-              <StatCard label="Có tồn kho" value={fmt(reportStats.items_with_stock)} color="#16a34a" icon="✅" />
-              <StatCard label="Tồn = 0" value={fmt(reportStats.items_zero_stock)} color="#dc2626" icon="⚠️" />
-              <StatCard label="Tổng nhập kỳ" value={fmt(reportStats.total_in)} color="#2563eb" icon="📥" />
-              <StatCard label="Tổng xuất kỳ" value={fmt(reportStats.total_out)} color="#ea580c" icon="📤" />
-              <StatCard label="Tồn cuối kỳ" value={fmt(reportStats.total_closing)} color="#7c3aed" icon="🏭" />
-            </div>
-          )}
-
-          {/* Report Table */}
-          {reportLoading ? (
-            <div style={emptyStyle}>⏳ Đang tải báo cáo...</div>
-          ) : reportData.length === 0 ? (
-            <div style={emptyStyle}>Không có dữ liệu trong kỳ này</div>
-          ) : (
-            <>
-              <div style={{ overflowX: 'auto', borderRadius: 8, border: '1px solid #e2e8f0' }}>
-                <table style={tableStyle}>
-                  <thead>
-                    <tr>
-                      <th style={thStyle}>STT</th>
-                      <th style={{ ...thStyle, cursor: 'pointer' }} onClick={() => handleReportSort('erp')}>
-                        Mã ERP <SortIcon col="erp" currentCol={reportSortCol} dir={reportSortDir} />
-                      </th>
-                      <th style={{ ...thStyle, cursor: 'pointer' }} onClick={() => handleReportSort('name')}>
-                        Tên Item <SortIcon col="name" currentCol={reportSortCol} dir={reportSortDir} />
-                      </th>
-                      <th style={thStyle}>Vị trí</th>
-                      <th style={thStyle}>ĐVT</th>
-                      <th style={{ ...thStyle, cursor: 'pointer', textAlign: 'right' }} onClick={() => handleReportSort('opening_stock')}>
-                        <div>Tồn đầu kỳ</div>
-                        <div style={thSumStyle}>{reportStats ? fmt(reportStats.total_opening) : ''}</div>
-                        <SortIcon col="opening_stock" currentCol={reportSortCol} dir={reportSortDir} />
-                      </th>
-                      <th style={{ ...thStyle, cursor: 'pointer', textAlign: 'right', color: '#16a34a' }} onClick={() => handleReportSort('in_period')}>
-                        <div>Nhập trong kỳ</div>
-                        <div style={thSumStyle}>{reportStats ? fmt(reportStats.total_in) : ''}</div>
-                        <SortIcon col="in_period" currentCol={reportSortCol} dir={reportSortDir} />
-                      </th>
-                      <th style={{ ...thStyle, cursor: 'pointer', textAlign: 'right', color: '#dc2626' }} onClick={() => handleReportSort('out_period')}>
-                        <div>Xuất trong kỳ</div>
-                        <div style={thSumStyle}>{reportStats ? fmt(reportStats.total_out) : ''}</div>
-                        <SortIcon col="out_period" currentCol={reportSortCol} dir={reportSortDir} />
-                      </th>
-                      <th style={{ ...thStyle, cursor: 'pointer', textAlign: 'right', color: '#1a3a5c' }} onClick={() => handleReportSort('closing_stock')}>
-                        <div>Tồn cuối kỳ</div>
-                        <div style={thSumStyle}>{reportStats ? fmt(reportStats.total_closing) : ''}</div>
-                        <SortIcon col="closing_stock" currentCol={reportSortCol} dir={reportSortDir} />
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {paginatedReport.map((item, idx) => (
-                      <tr key={item.erp} style={{ background: idx % 2 === 0 ? '#fff' : '#f8fafc' }}>
-                        <td style={tdStyle}>{(reportPage - 1) * PAGE_SIZE + idx + 1}</td>
-                        <td style={{ ...tdStyle, fontWeight: 600, fontFamily: 'monospace', fontSize: 12 }}>
-                          {item.erp}
-                        </td>
-                        <td style={tdStyle}>
-                          <div style={{ fontWeight: 500 }}>{item.name}</div>
-                          {item.name_cn && (
-                            <div style={{ fontSize: 11, color: '#94a3b8' }}>{item.name_cn}</div>
-                          )}
-                          {item.spec && (
-                            <div style={{ fontSize: 11, color: '#94a3b8' }}>{item.spec}</div>
-                          )}
-                        </td>
-                        <td style={tdStyle}>
-                          <span style={badgeLocStyle}>{item.pos || '—'}</span>
-                        </td>
-                        <td style={{ ...tdStyle, fontSize: 12 }}>{item.unit || ''}</td>
-                        <td style={{ ...tdStyle, textAlign: 'right', fontFamily: 'monospace' }}>
-                          {fmt(item.opening_stock)}
-                        </td>
-                        <td style={{
-                          ...tdStyle, textAlign: 'right', fontFamily: 'monospace',
-                          color: item.in_period > 0 ? '#16a34a' : '#94a3b8',
-                        }}>
-                          {item.in_period > 0 ? `+${fmt(item.in_period)}` : fmt(item.in_period)}
-                        </td>
-                        <td style={{
-                          ...tdStyle, textAlign: 'right', fontFamily: 'monospace',
-                          color: item.out_period > 0 ? '#dc2626' : '#94a3b8',
-                        }}>
-                          {item.out_period > 0 ? `-${fmt(item.out_period)}` : fmt(item.out_period)}
-                        </td>
-                        <td style={{
-                          ...tdStyle, textAlign: 'right', fontWeight: 700, fontFamily: 'monospace',
-                          color: item.closing_stock > 0 ? '#1a3a5c' : item.closing_stock < 0 ? '#dc2626' : '#94a3b8',
-                        }}>
-                          {fmt(item.closing_stock)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <Pagination current={reportPage} total={reportTotalPages} onChange={setReportPage} />
-            </>
-          )}
+          <div className="bg-surface-container-lowest rounded-2xl p-4 md:p-5 shadow-sm border border-error/20">
+            <div className="flex items-center gap-2 mb-2"><div className="w-8 h-8 rounded-xl bg-error/10 flex items-center justify-center"><span className="material-symbols-outlined text-error text-lg">warning</span></div></div>
+            <div className="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider">Cần mua ngay</div>
+            <div className="text-xl md:text-2xl font-black font-manrope text-error mt-1">{fmt(stats.zeroStock)} <span className="text-xs font-medium text-on-surface-variant">Mã</span></div>
+            {stats.negative > 0 && <div className="text-[9px] text-error font-bold mt-0.5">⚠ {stats.negative} mã tồn âm</div>}
+          </div>
         </div>
-      )}
+
+        {/* Filters */}
+        <div className="flex flex-col md:flex-row gap-3 items-center">
+          <select value={locationFilter} onChange={e => { setLocationFilter(e.target.value); setPage(1); }}
+            className="bg-surface-container-low border border-outline-variant/10 rounded-xl px-4 py-2 text-xs md:text-sm font-medium outline-none w-full md:w-auto">
+            <option value="">Tất cả Vị Trí</option>
+            {locations.map(l => <option key={l} value={l}>{l}</option>)}
+          </select>
+          <select value={sortField ? `${sortField}:${sortDir}` : ''} onChange={e => {
+            if (!e.target.value) { setSortField(''); setSortDir(''); }
+            else { const [f, d] = e.target.value.split(':'); setSortField(f); setSortDir(d as any); }
+            setPage(1);
+          }} className="bg-surface-container-low border border-outline-variant/10 rounded-xl px-4 py-2 text-xs md:text-sm font-medium outline-none w-full md:w-auto">
+            <option value="">Sắp xếp: Mới nhất</option>
+            <option value="erp:asc">Mã ERP A→Z</option>
+            <option value="erp:desc">Mã ERP Z→A</option>
+            <option value="end_stock:asc">Tồn: Thấp → Cao</option>
+            <option value="end_stock:desc">Tồn: Cao → Thấp</option>
+            <option value="in_qty:desc">Nhập: Cao → Thấp</option>
+            <option value="out_qty:desc">Xuất: Cao → Thấp</option>
+          </select>
+          <div className="flex items-center gap-1.5 bg-surface-container-low px-3 py-2 rounded-xl border border-outline-variant/10 w-full md:w-auto">
+            <span className="material-symbols-outlined text-sm text-on-surface-variant shrink-0">calendar_today</span>
+            <input type="date" value={fromDate} onChange={e => { setFromDate(e.target.value); setPage(1); }} className="bg-transparent border-none text-xs font-bold focus:ring-0 cursor-pointer p-0 min-w-[90px]" />
+            <span className="text-xs text-on-surface-variant">đến</span>
+            <input type="date" value={toDate} onChange={e => { setToDate(e.target.value); setPage(1); }} className="bg-transparent border-none text-xs font-bold focus:ring-0 cursor-pointer p-0 min-w-[90px]" />
+            {(fromDate || toDate) && <button onClick={() => { setFromDate(''); setToDate(''); }} className="material-symbols-outlined text-[14px] hover:text-error ml-1 shrink-0">close</button>}
+          </div>
+          <div className="flex gap-2 ml-auto">
+            <span className="text-[10px] font-bold text-on-surface-variant self-center">Cập nhật lần cuối: {new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}</span>
+            <button onClick={handleExport} disabled={exporting}
+              className="flex items-center gap-2 bg-surface-container-high px-4 py-2 rounded-xl text-primary hover:bg-primary-container hover:text-on-primary-container transition-colors font-bold text-xs disabled:opacity-50">
+              <span className="material-symbols-outlined text-sm">{exporting ? 'sync' : 'download'}</span>
+              {exporting ? 'Đang xuất...' : 'Xuất Excel'}
+            </button>
+          </div>
+        </div>
+
+        {/* Table */}
+        <div className="bg-surface-container-lowest rounded-2xl md:rounded-[2rem] shadow-sm overflow-hidden border border-outline-variant/10">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead className="sticky top-0 z-10">
+                <tr className="text-[9px] md:text-[10px] font-black text-on-surface-variant uppercase tracking-widest bg-surface-container-highest border-b border-outline-variant/20">
+                  <th className="py-3 md:py-4 px-2 md:px-4 cursor-pointer select-none" onClick={() => handleSort('erp')}>Mã ERP <SortIcon field="erp" cur={sortField} dir={sortDir} /></th>
+                  <th className="py-3 md:py-4 px-2 md:px-4 cursor-pointer select-none" onClick={() => handleSort('name')}>Tên Vật Tư <SortIcon field="name" cur={sortField} dir={sortDir} /></th>
+                  <th className="py-3 md:py-4 px-2 md:px-4 hidden lg:table-cell">Tên Tiếng Trung</th>
+                  <th className="py-3 md:py-4 px-2 md:px-4 hidden xl:table-cell">Quy Cách</th>
+                  <th className="py-3 md:py-4 px-2 md:px-4 hidden md:table-cell">ĐVT</th>
+                  <th className="py-3 md:py-4 px-2 md:px-4 hidden md:table-cell">Vị Trí</th>
+                  <th className="py-3 md:py-4 px-2 md:px-4 text-right cursor-pointer select-none hidden lg:table-cell" onClick={() => handleSort('start_stock')}>
+                    <div>Tồn Đầu</div><div className="text-[8px] font-medium opacity-70 font-mono">{fmt(stats.totalStart)}</div><SortIcon field="start_stock" cur={sortField} dir={sortDir} />
+                  </th>
+                  <th className="py-3 md:py-4 px-2 md:px-4 text-right cursor-pointer select-none" onClick={() => handleSort('in_qty')}>
+                    <div className="text-primary">Nhập</div><div className="text-[8px] font-medium opacity-70 font-mono text-primary">{fmt(stats.totalIn)}</div><SortIcon field="in_qty" cur={sortField} dir={sortDir} />
+                  </th>
+                  <th className="py-3 md:py-4 px-2 md:px-4 text-right cursor-pointer select-none" onClick={() => handleSort('out_qty')}>
+                    <div className="text-error">Xuất</div><div className="text-[8px] font-medium opacity-70 font-mono text-error">{fmt(stats.totalOut)}</div><SortIcon field="out_qty" cur={sortField} dir={sortDir} />
+                  </th>
+                  <th className="py-3 md:py-4 px-2 md:px-4 text-right cursor-pointer select-none" onClick={() => handleSort('end_stock')}>
+                    <div className="text-tertiary">Tồn Cuối</div><div className="text-[8px] font-medium opacity-70 font-mono text-tertiary">{fmt(stats.totalEnd)}</div><SortIcon field="end_stock" cur={sortField} dir={sortDir} />
+                  </th>
+                  <th className="py-3 md:py-4 px-2 md:px-4 text-right">Thao Tác</th>
+                </tr>
+              </thead>
+              <tbody className="text-[10px] md:text-sm divide-y divide-outline-variant/10">
+                {loading ? (
+                  <tr><td colSpan={11} className="py-20 text-center text-on-surface-variant"><span className="material-symbols-outlined animate-spin text-2xl block mb-2">sync</span>Đang tải...</td></tr>
+                ) : pagedData.length === 0 ? (
+                  <tr><td colSpan={11} className="py-20 text-center text-on-surface-variant italic">Không có dữ liệu</td></tr>
+                ) : pagedData.map((item, idx) => (
+                  <tr key={item.erp || idx} className={`hover:bg-surface-container-low transition-colors ${(item.end_stock || 0) < 0 ? 'bg-error/5' : ''}`}>
+                    <td className="py-3 md:py-4 px-2 md:px-4">
+                      <button onClick={() => setHistoryModal({ isOpen: true, erp: item.erp, name: item.name || '' })} className="font-bold text-primary text-[11px] md:text-sm hover:underline cursor-pointer font-mono">{item.erp}</button>
+                    </td>
+                    <td className="py-3 md:py-4 px-2 md:px-4"><div className="font-bold text-on-surface line-clamp-1">{item.name || <span className="text-outline-variant italic">N/A</span>}</div></td>
+                    <td className="py-3 md:py-4 px-2 md:px-4 hidden lg:table-cell text-on-surface-variant text-xs">{item.name_zh || item.name_cn || ''}</td>
+                    <td className="py-3 md:py-4 px-2 md:px-4 hidden xl:table-cell text-on-surface-variant text-xs">{item.spec || ''}</td>
+                    <td className="py-3 md:py-4 px-2 md:px-4 hidden md:table-cell"><span className="px-2 py-0.5 bg-secondary-container/30 text-on-secondary-container rounded text-[9px] md:text-xs font-bold">{item.unit || ''}</span></td>
+                    <td className="py-3 md:py-4 px-2 md:px-4 hidden md:table-cell"><span className="px-2 py-0.5 bg-primary-container/20 text-primary rounded text-[9px] md:text-xs font-bold">{item.pos || ''}</span></td>
+                    <td className="py-3 md:py-4 px-2 md:px-4 text-right font-mono text-on-surface-variant hidden lg:table-cell">{fmt(item.start_stock)}</td>
+                    <td className="py-3 md:py-4 px-2 md:px-4 text-right font-mono"><span className={`${(item.in_qty||0)>0?'text-primary font-bold':'text-outline-variant'}`}>{(item.in_qty||0)>0?`+${fmt(item.in_qty)}`:fmt(item.in_qty||0)}</span></td>
+                    <td className="py-3 md:py-4 px-2 md:px-4 text-right font-mono"><span className={`${(item.out_qty||0)>0?'text-error font-bold':'text-outline-variant'}`}>{fmt(item.out_qty||0)}</span></td>
+                    <td className="py-3 md:py-4 px-2 md:px-4 text-right font-mono"><span className={`font-black ${(item.end_stock||0)>0?'text-tertiary':(item.end_stock||0)<0?'text-error':'text-outline-variant'}`}>{fmt(item.end_stock)}</span></td>
+                    <td className="py-3 md:py-4 px-2 md:px-4 text-right flex justify-end gap-1">
+                      <button onClick={() => setHistoryModal({ isOpen: true, erp: item.erp, name: item.name || '' })} className="material-symbols-outlined text-outline-variant hover:text-primary bg-surface-container hover:bg-primary/10 p-1 md:p-2 rounded-lg text-[14px] md:text-base" title="Lịch sử">history</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {renderPagination(page, totalPages, setPage, filteredData.length)}
+        </div>
+      </>)}
+
+      {/* ═══════ TAB 2: BÁO CÁO THEO KỲ ═══════ */}
+      {activeTab === 'report' && (<>
+        {/* Period selector */}
+        <div className="bg-surface-container-lowest rounded-2xl md:rounded-[2rem] p-4 md:p-6 shadow-sm border border-outline-variant/10">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center"><span className="material-symbols-outlined text-primary">date_range</span></div>
+            <div>
+              <h3 className="text-base md:text-lg font-bold font-manrope text-on-surface">Chọn kỳ báo cáo</h3>
+              <p className="text-[10px] md:text-xs text-on-surface-variant font-medium">Xem tồn đầu kỳ, nhập/xuất trong kỳ, tồn cuối kỳ.</p>
+            </div>
+          </div>
+          <div className="flex gap-2 mb-4 flex-wrap">
+            {[0, -1, -2, -3].map(offset => {
+              const range = getMonthRange(offset);
+              const isActive = reportFrom === range.from && reportTo === range.to;
+              return <button key={offset} onClick={() => handleQuickMonth(offset)} className={`px-3 md:px-4 py-1.5 md:py-2 rounded-xl text-[10px] md:text-xs font-bold transition-all ${isActive ? 'bg-primary text-on-primary shadow-md shadow-primary/20' : 'bg-surface-container-high text-on-surface-variant hover:bg-primary/10'}`}>{range.label}</button>;
+            })}
+          </div>
+          <div className="flex flex-col md:flex-row gap-3 items-center">
+            <div className="flex items-center gap-1.5 bg-surface-container-low px-3 py-2 rounded-xl border border-outline-variant/10 w-full md:w-auto">
+              <span className="material-symbols-outlined text-sm text-on-surface-variant shrink-0">calendar_today</span>
+              <input type="date" value={reportFrom} onChange={e => { setReportFrom(e.target.value); setReportPage(1); }} className="bg-transparent border-none text-xs font-bold focus:ring-0 cursor-pointer p-0 min-w-[90px]" />
+              <span className="text-xs text-on-surface-variant">→</span>
+              <input type="date" value={reportTo} onChange={e => { setReportTo(e.target.value); setReportPage(1); }} className="bg-transparent border-none text-xs font-bold focus:ring-0 cursor-pointer p-0 min-w-[90px]" />
+            </div>
+            <div className="relative w-full md:w-auto flex-1">
+              <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline-variant text-sm">search</span>
+              <input type="text" placeholder="Tìm mã ERP, tên item..." value={reportSearch} onChange={e => { setReportSearch(e.target.value); setReportPage(1); }}
+                className="w-full bg-surface-container-low border border-outline-variant/10 rounded-xl pl-9 pr-4 py-2 text-xs font-medium focus:ring-2 focus:ring-primary/20 outline-none" />
+            </div>
+            <select value={reportLocation} onChange={e => { setReportLocation(e.target.value); setReportPage(1); }}
+              className="bg-surface-container-low border border-outline-variant/10 rounded-xl px-4 py-2 text-xs font-medium outline-none w-full md:w-auto">
+              <option value="">Tất cả Vị Trí</option>
+              {locations.map(l => <option key={l} value={l}>{l}</option>)}
+            </select>
+            <button onClick={handleExport} disabled={exporting}
+              className="flex items-center gap-2 bg-surface-container-high px-4 py-2 rounded-xl text-primary hover:bg-primary-container hover:text-on-primary-container transition-colors font-bold text-xs disabled:opacity-50 w-full md:w-auto justify-center">
+              <span className="material-symbols-outlined text-sm">{exporting ? 'sync' : 'download'}</span>
+              {exporting ? 'Đang xuất...' : 'Xuất Excel'}
+            </button>
+          </div>
+        </div>
+
+        {/* Report stats */}
+        {reportStats && (
+          <div className="grid grid-cols-3 md:grid-cols-6 gap-2 md:gap-3">
+            {[
+              { label: 'Tổng Item', value: reportStats.total_items, icon: 'inventory_2', color: 'text-on-surface' },
+              { label: 'Có tồn kho', value: reportStats.items_with_stock, icon: 'check_circle', color: 'text-secondary' },
+              { label: 'Tồn = 0', value: reportStats.items_zero_stock, icon: 'warning', color: 'text-error' },
+              { label: 'Tổng nhập kỳ', value: reportStats.total_in, icon: 'input', color: 'text-primary' },
+              { label: 'Tổng xuất kỳ', value: reportStats.total_out, icon: 'output', color: 'text-error' },
+              { label: 'Tồn cuối kỳ', value: reportStats.total_closing, icon: 'warehouse', color: 'text-tertiary' },
+            ].map(s => (
+              <div key={s.label} className="bg-surface-container-lowest rounded-xl p-3 shadow-sm border border-outline-variant/10 text-center">
+                <span className={`material-symbols-outlined text-lg ${s.color}`}>{s.icon}</span>
+                <div className={`text-base md:text-lg font-black font-mono ${s.color}`}>{fmt(s.value)}</div>
+                <div className="text-[8px] md:text-[10px] font-bold text-on-surface-variant uppercase tracking-wider">{s.label}</div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Report table */}
+        <div className="bg-surface-container-lowest rounded-2xl md:rounded-[2rem] shadow-sm overflow-hidden border border-outline-variant/10">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead className="sticky top-0 z-10">
+                <tr className="text-[9px] md:text-[10px] font-black text-on-surface-variant uppercase tracking-widest bg-surface-container-highest border-b border-outline-variant/20">
+                  <th className="py-3 md:py-4 px-2 md:px-4 text-center w-10">STT</th>
+                  <th className="py-3 md:py-4 px-2 md:px-4 cursor-pointer select-none" onClick={() => handleReportSort('erp')}>Mã ERP <SortIcon field="erp" cur={reportSortField} dir={reportSortDir} /></th>
+                  <th className="py-3 md:py-4 px-2 md:px-4 cursor-pointer select-none" onClick={() => handleReportSort('name')}>Tên Item <SortIcon field="name" cur={reportSortField} dir={reportSortDir} /></th>
+                  <th className="py-3 md:py-4 px-2 md:px-4 hidden md:table-cell">Vị Trí</th>
+                  <th className="py-3 md:py-4 px-2 md:px-4 hidden md:table-cell">ĐVT</th>
+                  <th className="py-3 md:py-4 px-2 md:px-4 text-right cursor-pointer select-none" onClick={() => handleReportSort('opening_stock')}>
+                    <div>Tồn Đầu Kỳ</div><div className="text-[8px] font-medium opacity-70 font-mono">{fmt(reportSums.opening)}</div><SortIcon field="opening_stock" cur={reportSortField} dir={reportSortDir} />
+                  </th>
+                  <th className="py-3 md:py-4 px-2 md:px-4 text-right cursor-pointer select-none" onClick={() => handleReportSort('in_period')}>
+                    <div className="text-primary">Nhập Trong Kỳ</div><div className="text-[8px] font-medium opacity-70 font-mono text-primary">{fmt(reportSums.inPeriod)}</div><SortIcon field="in_period" cur={reportSortField} dir={reportSortDir} />
+                  </th>
+                  <th className="py-3 md:py-4 px-2 md:px-4 text-right cursor-pointer select-none" onClick={() => handleReportSort('out_period')}>
+                    <div className="text-error">Xuất Trong Kỳ</div><div className="text-[8px] font-medium opacity-70 font-mono text-error">{fmt(reportSums.outPeriod)}</div><SortIcon field="out_period" cur={reportSortField} dir={reportSortDir} />
+                  </th>
+                  <th className="py-3 md:py-4 px-2 md:px-4 text-right cursor-pointer select-none" onClick={() => handleReportSort('closing_stock')}>
+                    <div className="text-tertiary">Tồn Cuối Kỳ</div><div className="text-[8px] font-medium opacity-70 font-mono text-tertiary">{fmt(reportSums.closing)}</div><SortIcon field="closing_stock" cur={reportSortField} dir={reportSortDir} />
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="text-[10px] md:text-sm divide-y divide-outline-variant/10">
+                {reportLoading ? (
+                  <tr><td colSpan={9} className="py-20 text-center text-on-surface-variant"><span className="material-symbols-outlined animate-spin text-2xl block mb-2">sync</span>Đang tải báo cáo...</td></tr>
+                ) : pagedReport.length === 0 ? (
+                  <tr><td colSpan={9} className="py-20 text-center text-on-surface-variant italic">Không có dữ liệu trong kỳ này</td></tr>
+                ) : pagedReport.map((item, idx) => (
+                  <tr key={item.erp || idx} className="hover:bg-surface-container-low transition-colors">
+                    <td className="py-3 md:py-4 px-2 md:px-4 text-center text-on-surface-variant text-[10px] font-bold">{(reportPage - 1) * PAGE_SIZE + idx + 1}</td>
+                    <td className="py-3 md:py-4 px-2 md:px-4 font-bold text-primary font-mono text-[11px] md:text-sm">{item.erp}</td>
+                    <td className="py-3 md:py-4 px-2 md:px-4">
+                      <div className="font-bold text-on-surface line-clamp-1">{item.name || '-'}</div>
+                      {item.spec && <div className="text-[9px] text-on-surface-variant line-clamp-1">{item.spec}</div>}
+                    </td>
+                    <td className="py-3 md:py-4 px-2 md:px-4 hidden md:table-cell"><span className="px-2 py-0.5 bg-primary-container/20 text-primary rounded text-[9px] md:text-xs font-bold">{item.pos || '-'}</span></td>
+                    <td className="py-3 md:py-4 px-2 md:px-4 hidden md:table-cell text-xs">{item.unit || ''}</td>
+                    <td className="py-3 md:py-4 px-2 md:px-4 text-right font-mono">{fmt(item.opening_stock)}</td>
+                    <td className="py-3 md:py-4 px-2 md:px-4 text-right font-mono"><span className={`${(item.in_period||0)>0?'text-primary font-bold':'text-outline-variant'}`}>{(item.in_period||0)>0?`+${fmt(item.in_period)}`:'0'}</span></td>
+                    <td className="py-3 md:py-4 px-2 md:px-4 text-right font-mono"><span className={`${(item.out_period||0)>0?'text-error font-bold':'text-outline-variant'}`}>{(item.out_period||0)>0?fmt(item.out_period):'0'}</span></td>
+                    <td className="py-3 md:py-4 px-2 md:px-4 text-right font-mono"><span className={`font-black ${(item.closing_stock||0)>0?'text-tertiary':(item.closing_stock||0)<0?'text-error':'text-outline-variant'}`}>{fmt(item.closing_stock)}</span></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {renderPagination(reportPage, reportTotalPages, setReportPage, filteredReport.length)}
+        </div>
+      </>)}
+
+      <ItemHistoryModal isOpen={historyModal.isOpen} erpCode={historyModal.erp} itemName={historyModal.name} onClose={() => setHistoryModal({ ...historyModal, isOpen: false })} />
     </div>
   );
-}
-
-// ─── StatCard Component ─────────────────────────────────────────
-function StatCard({ label, value, color, icon }: { label: string; value: string; color: string; icon: string }) {
-  return (
-    <div style={{
-      background: '#fff', borderRadius: 10, padding: '12px 14px',
-      border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: 10,
-      boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
-    }}>
-      <div style={{ fontSize: 22 }}>{icon}</div>
-      <div>
-        <div style={{ fontSize: 18, fontWeight: 700, color, fontFamily: 'monospace' }}>{value}</div>
-        <div style={{ fontSize: 11, color: '#64748b', fontWeight: 500 }}>{label}</div>
-      </div>
-    </div>
-  );
-}
-
-// ─── Styles ─────────────────────────────────────────────────────
-const tabStyle: React.CSSProperties = {
-  padding: '12px 20px', cursor: 'pointer', fontSize: 14, fontWeight: 600,
-  color: '#64748b', borderBottom: '3px solid transparent', marginBottom: -2,
-  background: 'none', border: 'none', borderBottomStyle: 'solid',
-  borderBottomWidth: 3, borderBottomColor: 'transparent',
-  fontFamily: 'inherit', transition: 'all 0.2s',
 };
 
-const activeTabStyle: React.CSSProperties = {
-  color: '#1a3a5c', borderBottomColor: '#1a3a5c',
-};
-
-const inputStyle: React.CSSProperties = {
-  padding: '8px 12px', borderRadius: 8, border: '1px solid #cbd5e1',
-  fontSize: 13, outline: 'none', flex: 1, minWidth: 140,
-  background: '#fff',
-};
-
-const exportBtnStyle: React.CSSProperties = {
-  padding: '8px 16px', borderRadius: 8, border: '1px solid #16a34a',
-  background: '#f0fdf4', color: '#16a34a', fontWeight: 600,
-  fontSize: 13, cursor: 'pointer', whiteSpace: 'nowrap',
-};
-
-const tableStyle: React.CSSProperties = {
-  width: '100%', borderCollapse: 'collapse', fontSize: 13,
-};
-
-const thStyle: React.CSSProperties = {
-  padding: '10px 8px', textAlign: 'left', fontWeight: 700,
-  background: '#1a3a5c', color: '#fff', fontSize: 12,
-  whiteSpace: 'nowrap', position: 'sticky', top: 0,
-};
-
-const thSumStyle: React.CSSProperties = {
-  fontSize: 10, fontWeight: 400, opacity: 0.85,
-  fontFamily: 'monospace', marginTop: 2,
-};
-
-const tdStyle: React.CSSProperties = {
-  padding: '8px', borderBottom: '1px solid #f1f5f9',
-  verticalAlign: 'top', fontSize: 13,
-};
-
-const pgBtnStyle: React.CSSProperties = {
-  padding: '4px 10px', borderRadius: 6, border: '1px solid #cbd5e1',
-  background: '#fff', cursor: 'pointer', fontSize: 12,
-};
-
-const badgeLocStyle: React.CSSProperties = {
-  display: 'inline-block', padding: '2px 8px', borderRadius: 4,
-  background: '#dbeafe', color: '#1d4ed8', fontSize: 11, fontWeight: 600,
-};
-
-const emptyStyle: React.CSSProperties = {
-  textAlign: 'center', padding: 40, color: '#94a3b8', fontSize: 14,
-};
+export default Inventory;

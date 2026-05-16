@@ -56,18 +56,32 @@ const Outbound = () => {
   const listRef = useRef<HTMLDivElement>(null);
 
   const [showEditHistory, setShowEditHistory] = useState(false);
+  const [errorLog, setErrorLog] = useState<string>('');
   const [editHistory, setEditHistory] = useState<any[]>([]);
 
   const loadOutboundRecords = async () => {
     try {
-      const { data, error } = await supabase
-        .from('outbound_records')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(500); // Limit initial load for performance
-        
-      if (error) throw error;
-      setOutboundRecords(data || []);
+      // Load ALL records with pagination (no limit)
+      const PAGE = 1000;
+      let allData: any[] = [];
+      let page = 0;
+      let hasMore = true;
+      while (hasMore) {
+        const { data, error } = await supabase
+          .from('outbound_records')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .range(page * PAGE, (page + 1) * PAGE - 1);
+        if (error) throw error;
+        if (data && data.length > 0) {
+          allData = allData.concat(data);
+          hasMore = data.length === PAGE;
+          page++;
+        } else {
+          hasMore = false;
+        }
+      }
+      setOutboundRecords(allData);
     } catch (error) {
       console.error('Error fetching outbound records:', error);
     }
@@ -133,14 +147,12 @@ const Outbound = () => {
         const [invRes, outboundRes] = await Promise.all([
           supabase
             .from('inventory')
-            .select('erp, name, name_zh, end_stock, spec')
-            .order('erp', { ascending: true })
-            .limit(1000),
+            .select('erp, name, name_zh, end_stock, spec, out_qty')
+            .order('erp', { ascending: true }),
           supabase
             .from('outbound_records')
             .select('*')
             .order('created_at', { ascending: false })
-            .limit(500)
         ]);
         
         if (invRes.error) throw invRes.error;
@@ -371,18 +383,31 @@ const Outbound = () => {
     if (e) e.preventDefault();
     if (!canEdit) return;
 
-    const validRows = outboundRows.filter(row => 
-      row.erpCode.trim() !== '' && 
-      row.qty.trim() !== '' && 
-      Math.round(parseFloat(row.qty)) > 0
-    );
+    const allRows = outboundRows.filter(row => row.erpCode.trim() || row.qty.trim());
+    
+    // Separate valid and invalid
+    const validRows: typeof allRows = [];
+    const errorRows: { row: number; reason: string; data: string }[] = [];
+
+    allRows.forEach((row, idx) => {
+      const erpTrim = row.erpCode.trim();
+      const qtyNum = Math.round(parseFloat(row.qty));
+      if (!erpTrim && !row.qty.trim()) {
+        errorRows.push({ row: idx + 1, reason: 'Thiếu ERP và số lượng', data: `Partner: ${row.partner}` });
+      } else if (!erpTrim) {
+        errorRows.push({ row: idx + 1, reason: 'Thiếu mã ERP', data: `Qty: ${row.qty}, Partner: ${row.partner}` });
+      } else if (!row.qty.trim() || isNaN(qtyNum) || qtyNum <= 0) {
+        errorRows.push({ row: idx + 1, reason: 'Số lượng = 0 hoặc không hợp lệ', data: `ERP: ${erpTrim}, Qty: ${row.qty}` });
+      } else {
+        validRows.push(row);
+      }
+    });
     
     if (validRows.length === 0) {
-      showToast('Vui lòng điền đủ ERP và Số lượng > 0 cho ít nhất một dòng!', true);
+      const errorMsg = `Không có dòng nào hợp lệ!\n\n${errorRows.map(e => `Dòng ${e.row}: ${e.reason} — ${e.data}`).join('\n')}`;
+      setErrorLog(errorMsg); return;
       return;
     }
-
-    // Validation removed as per requirements
 
     const payload = validRows.map(row => {
       const partnerValue = row.partner.trim() || 'Nội bộ';
@@ -390,7 +415,7 @@ const Outbound = () => {
       const outboundId = row.outboundId.trim() || `OUT-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
       return {
         outbound_id: outboundId,
-        erp_code: row.erpCode,
+        erp_code: row.erpCode.trim(),
         partner: partnerValue,
         qty: Math.round(parseFloat(row.qty)),
         initials: initials,
@@ -406,24 +431,34 @@ const Outbound = () => {
     
     setLoading(true);
     let totalInserted = 0;
+    const insertErrors: string[] = [];
     
     for (let i = 0; i < payload.length; i += chunkSize) {
       const chunk = payload.slice(i, i + chunkSize);
       const { error } = await supabase.from('outbound_records').insert(chunk);
       
       if (error) {
-        console.error('Error saving outbound records chunk:', error);
-        showToast('Lỗi khi lưu phiếu xuất hàng loạt: ' + error.message, true);
-        setLoading(false);
-        return;
+        console.error('Error saving outbound chunk:', error);
+        insertErrors.push(`Chunk ${Math.floor(i/chunkSize)+1}: ${error.message}`);
+      } else {
+        totalInserted += chunk.length;
       }
-      totalInserted += chunk.length;
     }
 
     setOutboundRows(Array.from({ length: 5 }, createEmptyOutboundRow));
     await loadOutboundRecords();
     setLoading(false);
-    showToast(`Tạo thành công ${totalInserted} lệnh xuất kho!`);
+
+    if (errorRows.length > 0 || insertErrors.length > 0) {
+      const msg = [
+        `Tạo thành công: ${totalInserted}/${allRows.length} lệnh xuất.`,
+        errorRows.length > 0 ? `\n⚠️ ${errorRows.length} dòng bị bỏ qua:\n${errorRows.map(e => `Dòng ${e.row}: ${e.reason} — ${e.data}`).join('\n')}` : '',
+        insertErrors.length > 0 ? `\n❌ Lỗi DB:\n${insertErrors.join('\n')}` : '',
+      ].join('');
+      setErrorLog(msg);
+    } else {
+      showToast(`✅ Tạo thành công ${totalInserted} lệnh xuất kho!`);
+    }
     listRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
@@ -488,7 +523,6 @@ const Outbound = () => {
 
     showToast(`Đang xóa ${selectedRows.length} lệnh xuất...`);
     try {
-      // Delete in chunks of 100 to avoid Supabase .in() limit
       const chunkSize = 100;
       for (let i = 0; i < selectedRows.length; i += chunkSize) {
         const chunk = selectedRows.slice(i, i + chunkSize);
@@ -497,6 +531,7 @@ const Outbound = () => {
       }
       setSelectedRows([]);
       showToast(`✅ Đã xóa ${selectedRows.length} lệnh xuất!`);
+      await loadOutboundRecords();
     } catch (error: any) {
       showToast('Lỗi khi xóa: ' + error.message, true);
     }
@@ -531,9 +566,10 @@ const Outbound = () => {
 
     if (selectedItem) {
       const newEndStock = (selectedItem.end_stock || 0) - record.qty;
+      const newOutQty = (selectedItem.out_qty || 0) + record.qty;
       const { error } = await supabase
         .from('inventory')
-        .update({ end_stock: newEndStock })
+        .update({ end_stock: newEndStock, out_qty: newOutQty })
         .eq('erp', record.erp_code);
       inventoryError = error;
     } else {
@@ -546,6 +582,7 @@ const Outbound = () => {
           name_zh: '',
           spec: '',
           unit: '',
+          out_qty: record.qty,
           end_stock: newEndStock
         }]);
       inventoryError = error;
@@ -584,7 +621,7 @@ const Outbound = () => {
       if (selectedItem) {
         setInventoryItems(prev => prev.map(item => 
           item.erp === record.erp_code 
-            ? { ...item, end_stock: (item.end_stock || 0) - record.qty } 
+            ? { ...item, end_stock: (item.end_stock || 0) - record.qty, out_qty: (item.out_qty || 0) + record.qty } 
             : item
         ));
       }
@@ -828,9 +865,10 @@ const Outbound = () => {
         const item = inventoryItems.find(i => i.erp === erp);
         if (item) {
           const newEndStock = (item.end_stock || 0) - totalQty;
+          const newOutQty = (item.out_qty || 0) + totalQty;
           return supabase
             .from('inventory')
-            .update({ end_stock: newEndStock })
+            .update({ end_stock: newEndStock, out_qty: newOutQty })
             .eq('erp', erp);
         } else {
           return supabase.from('inventory').insert([{
@@ -839,6 +877,7 @@ const Outbound = () => {
             name_zh: '',
             spec: '',
             unit: '',
+            out_qty: totalQty,
             end_stock: -totalQty
           }]);
         }
@@ -894,6 +933,14 @@ const Outbound = () => {
           >
             <span className="material-symbols-outlined text-lg">history</span>
             <span>Lịch sử</span>
+          </button>
+          <button 
+            onClick={loadOutboundRecords}
+            disabled={loading}
+            className="flex-1 md:flex-none justify-center px-4 md:px-5 py-2.5 bg-surface-container-high hover:bg-surface-container-highest text-on-surface-variant font-bold rounded-xl transition-all duration-200 flex items-center gap-2 shadow-sm border border-outline-variant/10 text-xs md:text-base disabled:opacity-50"
+          >
+            <span className={`material-symbols-outlined text-lg ${loading ? 'animate-spin' : ''}`}>sync</span>
+            <span>Đồng bộ</span>
           </button>
           <button 
             onClick={exportOutboundToExcel}
@@ -1719,6 +1766,43 @@ const Outbound = () => {
         itemName={historyModal.name}
         onClose={() => setHistoryModal({ ...historyModal, isOpen: false })}
       />
+
+      {/* Error Log Modal */}
+      <AnimatePresence>
+        {errorLog && (
+          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-scrim/40 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-surface-container-lowest rounded-3xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col overflow-hidden"
+            >
+              <div className="px-8 py-5 border-b border-outline-variant/20 flex justify-between items-center bg-error-container/10">
+                <div className="flex items-center gap-3">
+                  <span className="material-symbols-outlined text-error text-2xl">report</span>
+                  <h3 className="text-xl font-black text-on-surface">Chi tiết kết quả</h3>
+                </div>
+                <button onClick={() => setErrorLog('')} className="material-symbols-outlined text-on-surface-variant hover:text-error transition-colors">close</button>
+              </div>
+              <div className="p-6 flex-1 overflow-y-auto">
+                <pre className="whitespace-pre-wrap text-sm font-mono text-on-surface bg-surface-container-low p-4 rounded-xl border border-outline-variant/10 select-all">{errorLog}</pre>
+              </div>
+              <div className="px-8 py-4 border-t border-outline-variant/10 flex gap-3 justify-end">
+                <button
+                  onClick={() => { navigator.clipboard.writeText(errorLog); showToast('Đã copy!'); }}
+                  className="px-6 py-3 bg-primary text-on-primary rounded-xl font-bold text-sm flex items-center gap-2 hover:shadow-lg transition-all"
+                >
+                  <span className="material-symbols-outlined text-lg">content_copy</span>
+                  Copy
+                </button>
+                <button onClick={() => setErrorLog('')} className="px-6 py-3 bg-surface-container text-on-surface-variant rounded-xl font-bold text-sm hover:bg-surface-container-high transition-colors">
+                  Đóng
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

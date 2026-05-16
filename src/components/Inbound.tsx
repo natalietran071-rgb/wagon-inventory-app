@@ -46,6 +46,7 @@ const Inbound = () => {
   const [selectedRows, setSelectedRows] = useState<string[]>([]);
   const [showDeleteSelectedConfirm, setShowDeleteSelectedConfirm] = useState(false);
   const [showEditHistory, setShowEditHistory] = useState(false);
+  const [errorLog, setErrorLog] = useState<string>('');
   const [editHistory, setEditHistory] = useState<any[]>([]);
 
   // Form state
@@ -63,14 +64,27 @@ const Inbound = () => {
 
   const loadInboundRecords = async () => {
     try {
-      const { data, error } = await supabase
-        .from('inbound_records')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(500); // Limit initial load for performance
-        
-      if (error) throw error;
-      setInboundRecords(data || []);
+      // Load ALL records with pagination (no limit)
+      const PAGE = 1000;
+      let allData: any[] = [];
+      let page = 0;
+      let hasMore = true;
+      while (hasMore) {
+        const { data, error } = await supabase
+          .from('inbound_records')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .range(page * PAGE, (page + 1) * PAGE - 1);
+        if (error) throw error;
+        if (data && data.length > 0) {
+          allData = allData.concat(data);
+          hasMore = data.length === PAGE;
+          page++;
+        } else {
+          hasMore = false;
+        }
+      }
+      setInboundRecords(allData);
     } catch (error) {
       console.error('Error fetching inbound records:', error);
     }
@@ -194,13 +208,11 @@ const Inbound = () => {
           supabase
             .from('inventory')
             .select('erp, name, name_zh, unit, pos, spec, in_qty, end_stock')
-            .order('erp', { ascending: true })
-            .limit(1000),
+            .order('erp', { ascending: true }),
           supabase
             .from('inbound_records')
             .select('*')
-            .order('created_at', { ascending: false })
-            .limit(500),
+            .order('created_at', { ascending: false }),
           supabase
             .from('movements')
             .select('*')
@@ -300,7 +312,7 @@ const Inbound = () => {
     
     if (validRows.length === 0) {
       const errorMsg = `Không có dòng nào hợp lệ!\n\nChi tiết lỗi:\n${errorRows.map(e => `Dòng ${e.row}: ${e.reason} — ${e.data}`).join('\n')}`;
-      prompt('Copy lỗi bên dưới:', errorMsg);
+      setErrorLog(errorMsg); return;
       return;
     }
 
@@ -396,13 +408,15 @@ const Inbound = () => {
       
       if (errorRows.length > 0) {
         const errorMsg = `Nhập kho thành công ${validRows.length} dòng.\n\n⚠️ ${errorRows.length} dòng bị bỏ qua:\n${errorRows.map(e => `Dòng ${e.row}: ${e.reason} — ${e.data}`).join('\n')}`;
-        prompt('Nhập kho hoàn tất. Copy lỗi bên dưới nếu cần:', errorMsg);
+        setErrorLog(errorMsg);
       } else {
         alert(`Nhập kho hàng loạt thành công ${validRows.length} dòng!`);
       }
     } catch (err: any) {
       console.error(err);
-      prompt('Lỗi nhập kho — copy để gửi xử lý:', `Lỗi: ${err.message}\n\nDữ liệu: ${validRows.length} dòng hợp lệ, ${errorRows.length} dòng lỗi`);
+      setErrorLog(`Lỗi: ${err.message}
+
+Dữ liệu: ${validRows.length} dòng hợp lệ, ${errorRows.length} dòng lỗi`);
     } finally {
       setLoading(false);
     }
@@ -1669,6 +1683,43 @@ const Inbound = () => {
         itemName={historyModal.name}
         onClose={() => setHistoryModal({ ...historyModal, isOpen: false })}
       />
+
+      {/* Error Log Modal */}
+      <AnimatePresence>
+        {errorLog && (
+          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-scrim/40 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-surface-container-lowest rounded-3xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col overflow-hidden"
+            >
+              <div className="px-8 py-5 border-b border-outline-variant/20 flex justify-between items-center bg-error-container/10">
+                <div className="flex items-center gap-3">
+                  <span className="material-symbols-outlined text-error text-2xl">report</span>
+                  <h3 className="text-xl font-black text-on-surface">Chi tiết kết quả</h3>
+                </div>
+                <button onClick={() => setErrorLog('')} className="material-symbols-outlined text-on-surface-variant hover:text-error transition-colors">close</button>
+              </div>
+              <div className="p-6 flex-1 overflow-y-auto">
+                <pre className="whitespace-pre-wrap text-sm font-mono text-on-surface bg-surface-container-low p-4 rounded-xl border border-outline-variant/10 select-all">{errorLog}</pre>
+              </div>
+              <div className="px-8 py-4 border-t border-outline-variant/10 flex gap-3 justify-end">
+                <button
+                  onClick={() => { navigator.clipboard.writeText(errorLog); alert('Đã copy!'); }}
+                  className="px-6 py-3 bg-primary text-on-primary rounded-xl font-bold text-sm flex items-center gap-2 hover:shadow-lg transition-all"
+                >
+                  <span className="material-symbols-outlined text-lg">content_copy</span>
+                  Copy
+                </button>
+                <button onClick={() => setErrorLog('')} className="px-6 py-3 bg-surface-container text-on-surface-variant rounded-xl font-bold text-sm hover:bg-surface-container-high transition-colors">
+                  Đóng
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

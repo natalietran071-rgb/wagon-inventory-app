@@ -34,6 +34,15 @@ const UserManagement: React.FC = () => {
   });
 
   const [newPassword, setNewPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+
+  const generatePassword = () => {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$%';
+    let pw = '';
+    for (let i = 0; i < 12; i++) pw += chars.charAt(Math.floor(Math.random() * chars.length));
+    setNewPassword(pw);
+    setShowPassword(true);
+  };
 
   useEffect(() => {
     fetchUsers();
@@ -585,26 +594,62 @@ const UserManagement: React.FC = () => {
               exit={{ scale: 0.9, opacity: 0, y: 20 }}
               className="relative bg-surface-container-lowest p-10 rounded-[2.5rem] shadow-2xl max-w-sm w-full border border-outline-variant/10"
             >
-              <h3 className="text-2xl font-black text-on-surface mb-2">Đổi mật khẩu</h3>
-              <p className="text-xs text-on-surface-variant font-medium mb-8">Cho tài khoản: {selectedUser?.email}</p>
+              <h3 className="text-2xl font-black text-on-surface mb-2">Reset mật khẩu</h3>
+              <p className="text-xs text-on-surface-variant font-medium mb-8">Cho tài khoản: <span className="font-bold text-primary">{selectedUser?.email}</span></p>
               
               <form onSubmit={handleUpdatePassword} className="space-y-6">
                 <div>
                   <label className="block text-[10px] font-black uppercase tracking-widest text-on-surface-variant mb-3">Mật khẩu mới</label>
-                  <input 
-                    type="password"
-                    required
-                    className="w-full bg-surface-container-low border-none rounded-2xl py-4 px-6 text-sm font-bold shadow-inner focus:ring-2 focus:ring-primary/20"
-                    value={newPassword}
-                    onChange={(e) => setNewPassword(e.target.value)}
-                    placeholder="Nhập mật khẩu mới..."
-                  />
+                  <div className="relative">
+                    <input 
+                      type={showPassword ? 'text' : 'password'}
+                      required
+                      className="w-full bg-surface-container-low border-none rounded-2xl py-4 px-6 pr-24 text-sm font-bold shadow-inner focus:ring-2 focus:ring-primary/20 font-mono"
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      placeholder="Nhập hoặc tạo mật khẩu mới..."
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-14 top-1/2 -translate-y-1/2 p-1.5 rounded-lg hover:bg-surface-container-high text-on-surface-variant transition-colors"
+                      title={showPassword ? 'Ẩn' : 'Hiện'}
+                    >
+                      <span className="material-symbols-outlined text-lg">{showPassword ? 'visibility_off' : 'visibility'}</span>
+                    </button>
+                    {newPassword && (
+                      <button
+                        type="button"
+                        onClick={() => { navigator.clipboard.writeText(newPassword); alert('Đã copy mật khẩu!'); }}
+                        className="absolute right-4 top-1/2 -translate-y-1/2 p-1.5 rounded-lg hover:bg-primary/10 text-primary transition-colors"
+                        title="Copy"
+                      >
+                        <span className="material-symbols-outlined text-lg">content_copy</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
+
+                <button
+                  type="button"
+                  onClick={generatePassword}
+                  className="w-full py-3 bg-surface-container-high rounded-2xl font-bold text-xs uppercase tracking-widest text-on-surface-variant hover:bg-primary/10 hover:text-primary transition-all flex items-center justify-center gap-2"
+                >
+                  <span className="material-symbols-outlined text-lg">auto_fix_high</span>
+                  Tạo mật khẩu ngẫu nhiên
+                </button>
+
+                {showPassword && newPassword && (
+                  <div className="bg-surface-container-low rounded-2xl p-4 border border-outline-variant/10">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-on-surface-variant mb-2">Mật khẩu được tạo (gửi cho người dùng)</p>
+                    <p className="text-lg font-black font-mono text-primary select-all break-all">{newPassword}</p>
+                  </div>
+                )}
 
                 <div className="flex gap-3">
                   <button 
                     type="button"
-                    onClick={() => setIsPasswordModalOpen(false)}
+                    onClick={() => { setIsPasswordModalOpen(false); setShowPassword(false); }}
                     className="flex-1 py-4 bg-surface-container text-on-surface-variant rounded-2xl font-black text-xs uppercase tracking-widest"
                   >
                     HỦY
@@ -614,7 +659,7 @@ const UserManagement: React.FC = () => {
                     disabled={loading || !newPassword}
                     className="flex-1 py-4 bg-warning text-on-warning rounded-2xl font-black text-xs uppercase tracking-widest hover:shadow-lg disabled:opacity-50"
                   >
-                    {loading ? '...' : 'CẬP NHẬT'}
+                    {loading ? '...' : 'CẬP NHẬT MẬT KHẨU'}
                   </button>
                 </div>
               </form>

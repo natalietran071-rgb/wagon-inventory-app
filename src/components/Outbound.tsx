@@ -1195,7 +1195,7 @@ const Outbound = () => {
                   <div className="bg-surface-container-low p-6 rounded-xl overflow-hidden relative group h-full flex flex-col justify-center">
                     <div className="relative z-10">
                       <p className="text-xs font-bold text-on-surface-variant uppercase mb-1">
-                        Tổng xuất kho {filterDate ? `(${filterDate})` : '(Tất cả)'}
+                        Tổng xuất kho {filterDateFrom || filterDateTo ? `(${filterDateFrom || '...'} → ${filterDateTo || '...'})` : '(Tất cả)'}
                       </p>
                       <h4 className="text-3xl font-black text-on-surface">{filteredOutboundStats.qty.toLocaleString('en-US')} <span className="text-sm font-medium">Units</span></h4>
                       <div className="mt-4 flex items-center gap-2 text-sm font-medium text-primary bg-primary/10 w-fit px-3 py-1.5 rounded-lg">

@@ -772,7 +772,7 @@ const Outbound = () => {
     });
 
     return result;
-  }, [outboundRecords, filterDate, filterDateType, filterStatus, sortField, sortOrder, searchQuery, inventoryMap]);
+  }, [outboundRecords, filterDate, filterDateType, filterStatus, sortField, sortOrder, searchQuery]);
 
   // Pagination logic
   const totalPages = Math.ceil(filteredOutbound.length / itemsPerPage) || 1;

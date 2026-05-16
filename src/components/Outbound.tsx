@@ -177,7 +177,11 @@ const Outbound = () => {
       .channel('outbound_changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'outbound_records' }, (payload) => {
         if (payload.eventType === 'INSERT') {
-          setOutboundRecords(prev => [payload.new, ...prev]);
+          setOutboundRecords(prev => {
+            // Prevent duplicate from realtime + initial load race condition
+            if (prev.some(r => r.id === payload.new.id)) return prev;
+            return [payload.new, ...prev];
+          });
         } else if (payload.eventType === 'UPDATE') {
           setOutboundRecords(prev => prev.map(record => record.id === payload.new.id ? payload.new : record));
         } else if (payload.eventType === 'DELETE') {

@@ -243,7 +243,10 @@ const Inbound = () => {
       .channel('inbound_changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'inbound_records' }, (payload) => {
         if (payload.eventType === 'INSERT') {
-          setInboundRecords(prev => [payload.new, ...prev]);
+          setInboundRecords(prev => {
+            if (prev.some(r => r.id === payload.new.id)) return prev;
+            return [payload.new, ...prev];
+          });
         } else if (payload.eventType === 'UPDATE') {
           setInboundRecords(prev => prev.map(item => item.id === payload.new.id ? payload.new : item));
         } else if (payload.eventType === 'DELETE') {

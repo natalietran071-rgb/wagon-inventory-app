@@ -789,18 +789,23 @@ const Outbound = () => {
         ? (dataToExport || []).filter((item: any) => !item.bpm_number || item.bpm_number === 'No BPM')
         : (dataToExport || []);
 
-      const exportData = filteredExport.map(item => ({
-        'Mã Phiếu': item.outbound_id,
-        'Người Nhận / Bộ Phận': item.partner,
-        'Số BPM': item.bpm_number || '',
-        'Mã ERP': item.erp_code,
-        'Số Lượng': item.qty,
-        'Ngày Yêu Cầu': item.required_date || item.date,
-        'Ngày Tạo': new Date(item.created_at).toLocaleString(),
-        'Trạng Thái': item.status,
-        'Vị Trí': item.location || '',
-        'Người xử lý': item.initials
-      }));
+      const exportData = filteredExport.map(item => {
+        const inv = inventoryMap.get(item.erp_code);
+        return {
+          'Mã Phiếu': item.outbound_id,
+          'Người Nhận / Bộ Phận': item.partner,
+          'Số BPM': item.bpm_number || '',
+          'Mã ERP': item.erp_code,
+          'Tên Vật Tư': inv ? `${inv.name || ''}${inv.name_zh ? ` (${inv.name_zh})` : ''}` : (item.item_name || ''),
+          'Quy Cách': inv?.spec || '',
+          'Số Lượng': item.qty,
+          'Ngày Yêu Cầu': item.required_date || item.date,
+          'Ngày Tạo': new Date(item.created_at).toLocaleString(),
+          'Trạng Thái': item.status,
+          'Vị Trí': item.location || '',
+          'Người xử lý': item.initials
+        };
+      });
 
       const rangeTag = filterDateFrom || filterDateTo
         ? `_${filterDateFrom || '...'}_to_${filterDateTo || '...'}`
@@ -1443,7 +1448,13 @@ const Outbound = () => {
                         </button>
                         {(() => {
                           const item = inventoryMap.get(order.erp_code);
-                          return item && <p className="text-[9px] md:text-[10px] text-on-surface-variant mt-1 italic truncate max-w-[150px] md:max-w-[200px]" title={item.name}>{item.name}</p>;
+                          if (!item) return null;
+                          return (
+                            <p className="text-[9px] md:text-[10px] text-on-surface-variant mt-1 flex flex-wrap gap-x-1.5 items-center max-w-[200px] md:max-w-[260px]">
+                              <span className="italic truncate" title={item.name}>{item.name}{item.name_zh ? ` (${item.name_zh})` : ''}</span>
+                              {item.spec && <span className="bg-secondary/10 text-secondary px-1 py-0.5 rounded text-[8px] font-medium shrink-0">{item.spec}</span>}
+                            </p>
+                          );
                         })()}
                         <div className="sm:hidden mt-2">
                            <p className="font-medium text-on-surface text-[10px] leading-tight break-words">{order.partner}</p>

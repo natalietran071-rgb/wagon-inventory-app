@@ -63,35 +63,20 @@ const ItemManagement = () => {
   const fetchItemsByDate = async () => {
     setLoading(true);
     try {
-      const PAGE = 1000;
-      let all: any[] = [];
-      let page = 0;
-      let hasMore = true;
-      while (hasMore) {
-        let query = supabase.from('inventory').select('*')
-          .order('created_at', { ascending: false })
-          .range(page * PAGE, (page + 1) * PAGE - 1);
-        
-        if (fromDate) {
-          query = query.gte('created_at', new Date(fromDate).toISOString());
-        }
-        if (toDate) {
-          const endToDate = new Date(toDate);
-          endToDate.setHours(23, 59, 59, 999);
-          query = query.lte('created_at', endToDate.toISOString());
-        }
-
-        const { data, error } = await query;
-        if (error) throw error;
-        if (data && data.length > 0) {
-          all = all.concat(data);
-          hasMore = data.length === PAGE;
-          page++;
-        } else {
-          hasMore = false;
-        }
+      let query = supabase.from('inventory').select('*').order('created_at', { ascending: false });
+      
+      if (fromDate) {
+        query = query.gte('created_at', new Date(fromDate).toISOString());
       }
-      setDbItems(all);
+      if (toDate) {
+        const endToDate = new Date(toDate);
+        endToDate.setHours(23, 59, 59, 999);
+        query = query.lte('created_at', endToDate.toISOString());
+      }
+
+      // Add a limit to avoid fetching too many records if no filters are applied
+      const { data } = await query.limit(500);
+      if (data) setDbItems(data);
     } catch (err) {
       console.error('Error fetching items:', err);
     } finally {
@@ -380,8 +365,8 @@ const ItemManagement = () => {
       // Now map the data rows using the found headers
       const dataRows = rawData.slice(headerRowIndex + 1);
       
-      if (dataRows.length > 5000) {
-        alert(`Số lượng dữ liệu (${dataRows.length} dòng) vượt quá giới hạn 5000 dòng/lần tải. Vui lòng chia nhỏ file Excel ra hoặc xóa bớt để đảm bảo tốc độ và độ ổn định của hệ thống!`);
+      if (dataRows.length > 20000) {
+        alert(`Số lượng dữ liệu (${dataRows.length} dòng) vượt quá giới hạn 20,000 dòng/lần tải. Vui lòng chia nhỏ file Excel ra hoặc xóa bớt để đảm bảo tốc độ và độ ổn định của hệ thống!`);
         setImporting(false);
         if (fileInputRef.current) fileInputRef.current.value = '';
         return;

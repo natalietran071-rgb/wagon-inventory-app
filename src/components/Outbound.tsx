@@ -1436,24 +1436,24 @@ const Outbound = () => {
                       </td>
                       <td className="px-1 py-3 md:px-4 md:py-6 align-middle">
                         <p className="font-bold text-on-surface text-[11px] md:text-sm">{order.outbound_id}</p>
-                        <button 
-                          onClick={(e) => {
-                             e.stopPropagation();
-                             const item = inventoryMap.get(order.erp_code);
-                             setHistoryModal({ isOpen: true, erp: order.erp_code, name: item?.name || '' });
-                          }}
-                          className="text-[9px] md:text-[10px] text-primary bg-primary/10 px-1.5 py-0.5 rounded-md inline-block mt-0.5 font-bold hover:bg-primary hover:text-white transition-colors cursor-pointer"
-                        >
-                          ERP: {order.erp_code}
-                        </button>
                         {(() => {
                           const item = inventoryMap.get(order.erp_code);
-                          if (!item) return null;
                           return (
-                            <p className="text-[9px] md:text-[10px] text-on-surface-variant mt-1 flex flex-wrap gap-x-1.5 items-center max-w-[200px] md:max-w-[260px]">
-                              <span className="italic truncate" title={item.name}>{item.name}{item.name_zh ? ` (${item.name_zh})` : ''}</span>
-                              {item.spec && <span className="bg-secondary/10 text-secondary px-1 py-0.5 rounded text-[8px] font-medium shrink-0">{item.spec}</span>}
-                            </p>
+                            <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 mt-0.5">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setHistoryModal({ isOpen: true, erp: order.erp_code, name: item?.name || '' });
+                                }}
+                                className="text-[9px] md:text-[10px] text-primary bg-primary/10 px-1.5 py-0.5 rounded-md font-bold hover:bg-primary hover:text-white transition-colors cursor-pointer shrink-0"
+                              >
+                                ERP: {order.erp_code}
+                              </button>
+                              {item && <>
+                                <span className="text-[9px] md:text-[10px] text-on-surface-variant italic truncate max-w-[120px] md:max-w-[180px]" title={item.name}>{item.name}{item.name_zh ? ` (${item.name_zh})` : ''}</span>
+                                {item.spec && <span className="bg-secondary/10 text-secondary px-1 py-0.5 rounded text-[8px] font-medium shrink-0">{item.spec}</span>}
+                              </>}
+                            </div>
                           );
                         })()}
                         <div className="sm:hidden mt-2">

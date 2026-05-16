@@ -204,7 +204,7 @@
     </div>
 
     <div>
-      <p style="font-size:11px; font-weight:700; color:#16a34a; margin-bottom:8px">✅ SAU (tên + quy cách nằm ngang, có badge)</p>
+      <p style="font-size:11px; font-weight:700; color:#16a34a; margin-bottom:8px">✅ SAU (ERP + tên + quy cách cùng một hàng ngang)</p>
       <table>
         <thead><tr><th>☐</th><th>Lệnh / ERP</th><th>Người nhận</th><th>Ngày</th><th>SL</th></tr></thead>
         <tbody>
@@ -212,9 +212,9 @@
             <td>☐</td>
             <td>
               <div class="outbound-id">XK-2025-001</div>
-              <div class="erp-btn" style="margin-top:4px">ERP: VT-00123</div>
-              <!-- MỚI: tên + spec nằm ngang -->
-              <div class="name-inline" style="background:#f0fdf4; padding:4px 6px; border-radius:6px; margin-top:5px;">
+              <!-- MỚI: ERP + tên + spec cùng một hàng flex -->
+              <div style="display:flex; flex-wrap:wrap; align-items:center; gap:5px; margin-top:5px;">
+                <span class="erp-btn">ERP: VT-00123</span>
                 <span class="name-text" style="font-style:italic">Bánh răng côn (锥齿轮)</span>
                 <span class="spec-badge">M4×25mm</span>
               </div>
@@ -227,8 +227,8 @@
             <td>☐</td>
             <td>
               <div class="outbound-id">XK-2025-002</div>
-              <div class="erp-btn" style="margin-top:4px">ERP: VT-00456</div>
-              <div class="name-inline" style="background:#f0fdf4; padding:4px 6px; border-radius:6px; margin-top:5px;">
+              <div style="display:flex; flex-wrap:wrap; align-items:center; gap:5px; margin-top:5px;">
+                <span class="erp-btn">ERP: VT-00456</span>
                 <span class="name-text" style="font-style:italic">Vòng bi đỡ (深沟球轴承)</span>
                 <span class="spec-badge">6205-2RS</span>
               </div>
@@ -241,11 +241,10 @@
             <td>☐</td>
             <td>
               <div class="outbound-id">XK-2025-003</div>
-              <div class="erp-btn" style="margin-top:4px">ERP: VT-00789</div>
-              <!-- không có spec -->
-              <div class="name-inline" style="background:#f0fdf4; padding:4px 6px; border-radius:6px; margin-top:5px;">
+              <!-- không có spec → chỉ ERP + tên -->
+              <div style="display:flex; flex-wrap:wrap; align-items:center; gap:5px; margin-top:5px;">
+                <span class="erp-btn">ERP: VT-00789</span>
                 <span class="name-text" style="font-style:italic">Dầu bôi trơn (润滑油)</span>
-                <!-- spec badge không hiện nếu không có spec -->
               </div>
             </td>
             <td><span class="partner">Bảo Trì</span><div class="sub">2025-01-13 08:20</div></td>

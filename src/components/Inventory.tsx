@@ -48,6 +48,11 @@ const Inventory = () => {
   const [loading, setLoading] = useState(true);
   const [isLowStockModalOpen, setIsLowStockModalOpen] = useState(false);
 
+  // Select & bulk delete
+  const [selectedRows, setSelectedRows] = useState<string[]>([]);
+  const [showDeleteSelectedConfirm, setShowDeleteSelectedConfirm] = useState(false);
+  const [showDeleteAllConfirm, setShowDeleteAllConfirm] = useState(false);
+
   // Periodic report filtering
   const [reportFromDate, setReportFromDate] = useState('');
   const [reportToDate, setReportToDate] = useState('');
@@ -305,6 +310,84 @@ const Inventory = () => {
     setShowClearConfirm(false);
   };
 
+  const handleSelectRow = (id: string) => {
+    setSelectedRows(prev => prev.includes(id) ? prev.filter(r => r !== id) : [...prev, id]);
+  };
+
+  const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.checked) {
+      setSelectedRows(paginatedItems.map(r => r.id));
+    } else {
+      setSelectedRows([]);
+    }
+  };
+
+  const executeDeleteSelected = async () => {
+    setShowDeleteSelectedConfirm(false);
+    setLoading(true);
+    try {
+      const recordsToDelete = items.filter(r => selectedRows.includes(r.id));
+
+      // Log to deleted_items
+      const deletedLogs = recordsToDelete.map(item => ({
+        erp: item.erp,
+        name: item.name,
+        deleted_by: profile?.full_name || profile?.email || user?.email || 'Unknown',
+        reason: `Xóa hàng loạt ${selectedRows.length} item`
+      }));
+      if (deletedLogs.length > 0) {
+        await supabase.from('deleted_items').insert(deletedLogs);
+      }
+
+      // Delete in chunks
+      const chunkSize = 200;
+      let deletedCount = 0;
+      for (let i = 0; i < selectedRows.length; i += chunkSize) {
+        const chunk = selectedRows.slice(i, i + chunkSize);
+        const { error } = await supabase.from('inventory').delete().in('id', chunk);
+        if (error) throw error;
+        deletedCount += chunk.length;
+      }
+      alert(`Đã xóa ${deletedCount} item khỏi tồn kho.`);
+      setSelectedRows([]);
+      fetchInventory();
+      fetchStats();
+    } catch (err: any) {
+      console.error(err);
+      alert('Lỗi khi xóa: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const executeDeleteAll = async () => {
+    setShowDeleteAllConfirm(false);
+    setLoading(true);
+    try {
+      // Log
+      await supabase.from('deleted_items').insert([{
+        erp: 'ALL',
+        name: `Xóa toàn bộ ${totalFilteredCount} item tồn kho`,
+        deleted_by: profile?.full_name || profile?.email || user?.email || 'Unknown',
+        reason: 'Admin xóa toàn bộ dữ liệu tồn kho'
+      }]);
+
+      // Delete all inventory
+      const { error } = await supabase.from('inventory').delete().neq('id', 0);
+      if (error) throw error;
+
+      alert('Đã xóa toàn bộ dữ liệu tồn kho!');
+      setSelectedRows([]);
+      fetchInventory();
+      fetchStats();
+    } catch (err: any) {
+      console.error(err);
+      alert('Lỗi: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const categories = ['All', 'Nguyên liệu', 'Vật liệu', 'Phụ liệu', 'Công cụ']; // Or fetch from DB
 
   const totalPages = Math.ceil(totalFilteredCount / itemsPerPage) || 1;
@@ -487,6 +570,24 @@ const Inventory = () => {
             <span className="material-symbols-outlined text-lg">{loading ? 'sync' : 'download'}</span>
             {loading ? 'Đang xuất...' : 'Xuất Excel'}
           </button>
+          {canAdmin && selectedRows.length > 0 && (
+            <button 
+              onClick={() => setShowDeleteSelectedConfirm(true)}
+              className="flex-1 md:flex-none bg-error text-on-error px-4 md:px-6 py-2 md:py-3 rounded-xl font-bold flex items-center justify-center gap-2 hover:opacity-90 transition-all text-xs md:text-sm shadow-lg shadow-error/20"
+            >
+              <span className="material-symbols-outlined text-lg">delete</span>
+              Xóa ({selectedRows.length})
+            </button>
+          )}
+          {canAdmin && (
+            <button 
+              onClick={() => setShowDeleteAllConfirm(true)}
+              className="flex-1 md:flex-none bg-error-container text-on-error-container px-4 md:px-6 py-2 md:py-3 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-error/20 transition-all text-xs md:text-sm"
+            >
+              <span className="material-symbols-outlined text-lg">delete_sweep</span>
+              Xóa toàn bộ
+            </button>
+          )}
         </div>
       </div>
 
@@ -813,6 +914,16 @@ const Inventory = () => {
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-surface-container-low/50">
+                {canAdmin && (
+                  <th className="py-4 px-2 w-8">
+                    <input 
+                      type="checkbox"
+                      className="w-3.5 h-3.5 rounded border-outline-variant text-primary focus:ring-primary cursor-pointer"
+                      onChange={handleSelectAll}
+                      checked={paginatedItems.length > 0 && selectedRows.length === paginatedItems.length}
+                    />
+                  </th>
+                )}
                 <th className="col-header py-4 px-4 hidden md:table-cell font-black text-[10px]">{t('erpCode')}</th>
                 <th className="col-header py-4 px-3 font-black text-[10px]">{t('itemName')}</th>
                 <th className="col-header py-4 px-3 hidden md:table-cell font-black text-[10px]">Tên Tiếng Trung</th>
@@ -839,7 +950,17 @@ const Inventory = () => {
                 };
 
                 return (
-                  <tr key={`${item.erp}-${idx}`} onClick={() => setSelectedItemDetail(item)} className={`group hover:bg-on-surface hover:text-surface transition-all cursor-pointer border-b border-outline-variant/10 ${isCritical ? 'bg-error-container/5' : ''}`}>
+                  <tr key={`${item.erp}-${idx}`} onClick={() => setSelectedItemDetail(item)} className={`group hover:bg-on-surface hover:text-surface transition-all cursor-pointer border-b border-outline-variant/10 ${isCritical ? 'bg-error-container/5' : ''} ${selectedRows.includes(item.id) ? 'bg-primary-container/20' : ''}`}>
+                    {canAdmin && (
+                      <td className="px-2 py-3 w-8" onClick={e => e.stopPropagation()}>
+                        <input 
+                          type="checkbox"
+                          className="w-3.5 h-3.5 rounded border-outline-variant text-primary focus:ring-primary cursor-pointer"
+                          checked={selectedRows.includes(item.id)}
+                          onChange={() => handleSelectRow(item.id)}
+                        />
+                      </td>
+                    )}
                     <td className="px-4 py-3 hidden md:table-cell">
                       <button 
                         onClick={(e) => {
@@ -916,7 +1037,7 @@ const Inventory = () => {
               })}
               {paginatedItems.length === 0 && (
                 <tr key="empty-inventory">
-                  <td colSpan={9} className="px-8 py-12 text-center text-on-surface-variant font-medium">
+                  <td colSpan={canAdmin ? 13 : 11} className="px-8 py-12 text-center text-on-surface-variant font-medium">
                     Không tìm thấy vật tư phù hợp với bộ lọc.
                   </td>
                 </tr>
@@ -1417,6 +1538,68 @@ const Inventory = () => {
           </div>
         )}
       </AnimatePresence>
+
+      {/* Delete Selected Confirm Modal */}
+      {showDeleteSelectedConfirm && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-scrim/40 backdrop-blur-sm">
+          <div className="bg-surface-container-lowest p-8 rounded-[2rem] shadow-2xl max-w-sm w-full border border-outline-variant/10 animate-in zoom-in-95 duration-200">
+            <div className="w-16 h-16 bg-error/10 rounded-2xl flex items-center justify-center text-error mb-6">
+              <span className="material-symbols-outlined text-3xl" style={{ fontVariationSettings: "'FILL' 1" }}>warning</span>
+            </div>
+            <h3 className="text-xl font-black text-on-surface mb-2">Xác nhận xóa {selectedRows.length} item</h3>
+            <p className="text-on-surface-variant text-sm mb-6 leading-relaxed">
+              Bạn có chắc chắn muốn XÓA <strong className="text-error">{selectedRows.length}</strong> item đã chọn khỏi tồn kho? Hành động này sẽ được ghi log lại.
+            </p>
+            <div className="flex gap-3">
+              <button 
+                onClick={() => setShowDeleteSelectedConfirm(false)}
+                className="flex-1 py-3 px-4 rounded-xl font-bold text-sm text-on-surface-variant hover:bg-surface-container-low transition-colors"
+                disabled={loading}
+              >
+                Hủy
+              </button>
+              <button 
+                onClick={executeDeleteSelected}
+                className="flex-1 py-3 px-4 rounded-xl font-bold text-sm bg-error text-on-error shadow-lg shadow-error/20 hover:opacity-90 transition-opacity"
+                disabled={loading}
+              >
+                {loading ? 'Đang xóa...' : 'Xác nhận xóa'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete ALL Confirm Modal */}
+      {showDeleteAllConfirm && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-scrim/40 backdrop-blur-sm">
+          <div className="bg-surface-container-lowest p-8 rounded-[2rem] shadow-2xl max-w-sm w-full border border-outline-variant/10 animate-in zoom-in-95 duration-200">
+            <div className="w-16 h-16 bg-error/10 rounded-2xl flex items-center justify-center text-error mb-6">
+              <span className="material-symbols-outlined text-3xl" style={{ fontVariationSettings: "'FILL' 1" }}>delete_forever</span>
+            </div>
+            <h3 className="text-xl font-black text-error mb-2">⚠ CẢNH BÁO NGUY HIỂM</h3>
+            <p className="text-on-surface-variant text-sm mb-6 leading-relaxed">
+              Bạn sắp XÓA <strong className="text-error">TOÀN BỘ</strong> dữ liệu tồn kho. Hành động này <strong className="text-error">KHÔNG THỂ HOÀN TÁC</strong>. Chỉ thực hiện khi cần reset dữ liệu để nhập lại từ đầu.
+            </p>
+            <div className="flex gap-3">
+              <button 
+                onClick={() => setShowDeleteAllConfirm(false)}
+                className="flex-1 py-3 px-4 rounded-xl font-bold text-sm text-on-surface-variant hover:bg-surface-container-low transition-colors"
+                disabled={loading}
+              >
+                Hủy
+              </button>
+              <button 
+                onClick={executeDeleteAll}
+                className="flex-1 py-3 px-4 rounded-xl font-bold text-sm bg-error text-on-error shadow-lg shadow-error/20 hover:opacity-90 transition-opacity"
+                disabled={loading}
+              >
+                {loading ? 'Đang xóa...' : 'XÓA TOÀN BỘ'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <ItemHistoryModal 
         isOpen={historyModal.isOpen}

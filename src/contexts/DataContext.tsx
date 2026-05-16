@@ -16,11 +16,43 @@ export const DataProvider = ({ children }: { children: React.ReactNode }) => {
   const fetchLocations = async () => {
     setLoadingLocations(true);
     try {
+      // Try RPC first
       const { data, error } = await supabase.rpc('get_location_list');
-      if (error) throw error;
-      if (data) {
+      if (!error && data && data.length > 0) {
         const locList = ['All', ...data.filter((l: any) => l.location_prefix).map((l: any) => l.location_prefix)];
         setLocations(locList);
+      } else {
+        // Fallback: fetch unique pos values directly from inventory table
+        const PAGE = 1000;
+        let allPos: string[] = [];
+        let page = 0;
+        let hasMore = true;
+        while (hasMore) {
+          const { data: posData } = await supabase
+            .from('inventory')
+            .select('pos')
+            .not('pos', 'is', null)
+            .not('pos', 'eq', '')
+            .order('pos')
+            .range(page * PAGE, (page + 1) * PAGE - 1);
+          if (posData && posData.length > 0) {
+            allPos = allPos.concat(posData.map((p: any) => p.pos));
+            hasMore = posData.length === PAGE;
+            page++;
+          } else {
+            hasMore = false;
+          }
+        }
+        // Extract unique prefixes (part before first '-')
+        const prefixSet = new Set<string>();
+        allPos.forEach(p => {
+          if (p) {
+            const prefix = p.split('-')[0].trim();
+            if (prefix) prefixSet.add(prefix);
+          }
+        });
+        const sortedPrefixes = Array.from(prefixSet).sort();
+        setLocations(['All', ...sortedPrefixes]);
       }
     } catch (error) {
       console.error('Lỗi khi tải danh sách vị trí:', error);

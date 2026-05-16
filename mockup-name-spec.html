@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mockup – Tên Vật Tư & Quy Cách</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', system-ui, sans-serif; background: #f3f4f6; padding: 24px; color: #1c1b1f; }
+  h2 { font-size: 13px; font-weight: 800; text-transform: uppercase; letter-spacing: .1em; color: #6b7280; margin-bottom: 12px; }
+  .section { background: #fff; border-radius: 16px; padding: 20px; margin-bottom: 28px; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+  .label { font-size: 11px; background: #6366f1; color: #fff; display: inline-block; padding: 2px 8px; border-radius: 99px; font-weight: 700; margin-bottom: 14px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; color: #9ca3af; padding: 0 12px 10px; text-align: left; }
+  td { padding: 14px 12px; border-top: 1px solid #f1f5f9; vertical-align: middle; }
+  tr:hover td { background: #f8fafc; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 99px; font-size: 9px; font-weight: 700; }
+  .badge-green { background: #dcfce7; color: #15803d; }
+  .badge-blue { background: #dbeafe; color: #1d4ed8; }
+  .badge-gray { background: #f1f5f9; color: #64748b; }
+  .badge-purple { background: #ede9fe; color: #7c3aed; }
+  .erp-btn { background: #eef2ff; color: #4f46e5; font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 6px; display: inline-block; }
+  .order-id { font-weight: 700; color: #111827; font-size: 12px; }
+  .outbound-id { font-weight: 800; color: #111827; font-size: 12px; }
+  .partner { font-weight: 600; font-size: 12px; color: #374151; }
+  .sub { font-size: 10px; color: #9ca3af; margin-top: 2px; }
+  .name-text { font-size: 10px; color: #6b7280; font-style: italic; }
+  .spec-badge { background: #f0fdf4; color: #16a34a; font-size: 8px; font-weight: 600; padding: 2px 6px; border-radius: 4px; }
+  .highlight { background: #fffbeb; }
+  .new-col { background: #f0fdf4; }
+  .legend { display: flex; gap: 16px; font-size: 11px; color: #6b7280; margin-bottom: 16px; align-items: center; }
+  .legend-dot { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+  .name-inline { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin-top: 4px; max-width: 240px; }
+  .qty { font-weight: 700; }
+  .loc { background: #f1f5f9; padding: 2px 8px; border-radius: 99px; font-size: 10px; }
+  .note { font-size: 11px; color: #6366f1; background: #eef2ff; padding: 8px 12px; border-radius: 8px; margin-bottom: 12px; }
+  .diff-arrow { color: #10b981; font-weight: 800; margin: 0 6px; }
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════════════════
+     MODULE 1 – NHẬP KHO: lịch sử nhập kho
+     Thêm cột Tên Vật Tư + Quy Cách
+═══════════════════════════════════════════════════════════ -->
+
+<div class="section">
+  <span class="label">📦 Module Nhập Kho – Lịch Sử</span>
+  <div class="legend">
+    <span><span class="legend-dot" style="background:#bbf7d0"></span> Cột mới thêm</span>
+    <span><span class="legend-dot" style="background:#fff"></span> Cột cũ giữ nguyên</span>
+  </div>
+  <p class="note">Thêm 2 cột "Tên Vật Tư" và "Quy Cách" ở bên phải cột Vật tư/ERP (hiển thị khi màn hình đủ rộng)</p>
+
+  <table>
+    <thead>
+      <tr>
+        <th>☐</th>
+        <th>Thời gian</th>
+        <th>Mã Đơn</th>
+        <th>Vật tư / ERP</th>
+        <th style="background:#f0fdf4; color:#16a34a">Tên Vật Tư ✦ MỚI</th>
+        <th style="background:#f0fdf4; color:#16a34a">Quy Cách ✦ MỚI</th>
+        <th>SL</th>
+        <th>Vị trí</th>
+        <th>Trạng thái</th>
+        <th>Thao tác</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>☐</td>
+        <td><div class="order-id">2025-01-15</div><div class="sub">09:32</div></td>
+        <td><span class="order-id">PO-2025-001</span></td>
+        <td><span class="erp-btn">VT-00123</span></td>
+        <td class="new-col"><span style="font-size:11px; color:#374151">Bánh răng côn <span style="color:#9ca3af">(锥齿轮)</span></span></td>
+        <td class="new-col"><span style="font-size:11px; color:#6b7280">M4×25mm</span></td>
+        <td><span class="qty">500</span> <span style="font-size:9px; color:#9ca3af">PCS</span></td>
+        <td><span class="loc">A-01</span></td>
+        <td><span class="badge badge-green">Stocked</span></td>
+        <td>⋯</td>
+      </tr>
+      <tr>
+        <td>☐</td>
+        <td><div class="order-id">2025-01-14</div><div class="sub">14:05</div></td>
+        <td><span class="order-id">PO-2025-002</span></td>
+        <td><span class="erp-btn">VT-00456</span></td>
+        <td class="new-col"><span style="font-size:11px; color:#374151">Vòng bi đỡ <span style="color:#9ca3af">(深沟球轴承)</span></span></td>
+        <td class="new-col"><span style="font-size:11px; color:#6b7280">6205-2RS</span></td>
+        <td><span class="qty">200</span> <span style="font-size:9px; color:#9ca3af">PCS</span></td>
+        <td><span class="loc">B-03</span></td>
+        <td><span class="badge badge-blue">Pending</span></td>
+        <td>⋯</td>
+      </tr>
+      <tr>
+        <td>☐</td>
+        <td><div class="order-id">2025-01-13</div><div class="sub">08:20</div></td>
+        <td><span class="order-id">PO-2025-003</span></td>
+        <td><span class="erp-btn">VT-00789</span></td>
+        <td class="new-col"><span style="font-size:11px; color:#9ca3af; font-style:italic">—</span></td>
+        <td class="new-col"><span style="font-size:11px; color:#9ca3af; font-style:italic">—</span></td>
+        <td><span class="qty">80</span> <span style="font-size:9px; color:#9ca3af">KG</span></td>
+        <td><span class="loc">C-02</span></td>
+        <td><span class="badge badge-green">Stocked</span></td>
+        <td>⋯</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p style="margin-top:14px; font-size:11px; color:#9ca3af">* Nếu ERP code không có trong inventory → hiển thị "—"</p>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════════════
+     MODULE 1 – NHẬP KHO: Excel Export
+     Thêm cột Tên Vật Tư + Quy Cách
+═══════════════════════════════════════════════════════════ -->
+
+<div class="section">
+  <span class="label">📊 Excel Nhập Kho – So sánh Before / After</span>
+
+  <div style="display:grid; grid-template-columns:1fr 1fr; gap:20px; margin-top:12px;">
+    <div>
+      <p style="font-size:11px; font-weight:700; color:#ef4444; margin-bottom:8px">❌ TRƯỚC (thiếu tên & quy cách)</p>
+      <table>
+        <thead><tr>
+          <th style="background:#fef2f2">Thời gian</th>
+          <th style="background:#fef2f2">Order ID</th>
+          <th style="background:#fef2f2">Mã ERP</th>
+          <th style="background:#fef2f2">Số lượng</th>
+          <th style="background:#fef2f2">Đơn vị</th>
+          <th style="background:#fef2f2">Vị trí</th>
+          <th style="background:#fef2f2">Trạng thái</th>
+        </tr></thead>
+        <tbody>
+          <tr><td>2025-01-15 09:32</td><td>PO-2025-001</td><td>VT-00123</td><td>500</td><td>PCS</td><td>A-01</td><td>Stocked</td></tr>
+          <tr><td>2025-01-14 14:05</td><td>PO-2025-002</td><td>VT-00456</td><td>200</td><td>PCS</td><td>B-03</td><td>Pending</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div>
+      <p style="font-size:11px; font-weight:700; color:#16a34a; margin-bottom:8px">✅ SAU (đầy đủ tên & quy cách)</p>
+      <table>
+        <thead><tr>
+          <th>Thời gian</th>
+          <th>Order ID</th>
+          <th>Mã ERP</th>
+          <th style="background:#f0fdf4; color:#16a34a">Tên Vật Tư</th>
+          <th style="background:#f0fdf4; color:#16a34a">Quy Cách</th>
+          <th>Số lượng</th>
+          <th>Đơn vị</th>
+          <th>Vị trí</th>
+          <th>Trạng thái</th>
+        </tr></thead>
+        <tbody>
+          <tr><td>2025-01-15 09:32</td><td>PO-2025-001</td><td>VT-00123</td><td class="new-col">Bánh răng côn (锥齿轮)</td><td class="new-col">M4×25mm</td><td>500</td><td>PCS</td><td>A-01</td><td>Stocked</td></tr>
+          <tr><td>2025-01-14 14:05</td><td>PO-2025-002</td><td>VT-00456</td><td class="new-col">Vòng bi đỡ (深沟球轴承)</td><td class="new-col">6205-2RS</td><td>200</td><td>PCS</td><td>B-03</td><td>Pending</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════════════
+     MODULE 2 – XUẤT KHO: danh sách lệnh xuất
+     Tên + Quy cách hiển thị ngang
+═══════════════════════════════════════════════════════════ -->
+
+<div class="section">
+  <span class="label">🚚 Module Xuất Kho – Danh Sách Lệnh</span>
+  <div style="display:grid; grid-template-columns:1fr 1fr; gap:20px; margin-top:12px;">
+
+    <div>
+      <p style="font-size:11px; font-weight:700; color:#ef4444; margin-bottom:8px">❌ TRƯỚC (tên hiện dọc, không có quy cách)</p>
+      <table>
+        <thead><tr><th>☐</th><th>Lệnh / ERP</th><th>Người nhận</th><th>Ngày</th><th>SL</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>☐</td>
+            <td>
+              <div class="outbound-id">XK-2025-001</div>
+              <div class="erp-btn" style="margin-top:4px">ERP: VT-00123</div>
+              <div class="name-text" style="margin-top:4px">Bánh răng côn</div>
+              <!-- spec không có -->
+            </td>
+            <td><span class="partner">Phòng Kỹ Thuật</span><div class="sub">2025-01-15 09:32</div></td>
+            <td>2025-01-15</td>
+            <td class="qty">50</td>
+          </tr>
+          <tr>
+            <td>☐</td>
+            <td>
+              <div class="outbound-id">XK-2025-002</div>
+              <div class="erp-btn" style="margin-top:4px">ERP: VT-00456</div>
+              <div class="name-text" style="margin-top:4px">Vòng bi đỡ</div>
+            </td>
+            <td><span class="partner">Sản Xuất A</span><div class="sub">2025-01-14 14:05</div></td>
+            <td>2025-01-14</td>
+            <td class="qty">20</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div>
+      <p style="font-size:11px; font-weight:700; color:#16a34a; margin-bottom:8px">✅ SAU (ERP + tên + quy cách cùng một hàng ngang)</p>
+      <table>
+        <thead><tr><th>☐</th><th>Lệnh / ERP</th><th>Người nhận</th><th>Ngày</th><th>SL</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>☐</td>
+            <td>
+              <div class="outbound-id">XK-2025-001</div>
+              <!-- MỚI: ERP + tên + spec cùng một hàng flex -->
+              <div style="display:flex; flex-wrap:wrap; align-items:center; gap:5px; margin-top:5px;">
+                <span class="erp-btn">ERP: VT-00123</span>
+                <span class="name-text" style="font-style:italic">Bánh răng côn (锥齿轮)</span>
+                <span class="spec-badge">M4×25mm</span>
+              </div>
+            </td>
+            <td><span class="partner">Phòng Kỹ Thuật</span><div class="sub">2025-01-15 09:32</div></td>
+            <td>2025-01-15</td>
+            <td class="qty">50</td>
+          </tr>
+          <tr>
+            <td>☐</td>
+            <td>
+              <div class="outbound-id">XK-2025-002</div>
+              <div style="display:flex; flex-wrap:wrap; align-items:center; gap:5px; margin-top:5px;">
+                <span class="erp-btn">ERP: VT-00456</span>
+                <span class="name-text" style="font-style:italic">Vòng bi đỡ (深沟球轴承)</span>
+                <span class="spec-badge">6205-2RS</span>
+              </div>
+            </td>
+            <td><span class="partner">Sản Xuất A</span><div class="sub">2025-01-14 14:05</div></td>
+            <td>2025-01-14</td>
+            <td class="qty">20</td>
+          </tr>
+          <tr>
+            <td>☐</td>
+            <td>
+              <div class="outbound-id">XK-2025-003</div>
+              <!-- không có spec → chỉ ERP + tên -->
+              <div style="display:flex; flex-wrap:wrap; align-items:center; gap:5px; margin-top:5px;">
+                <span class="erp-btn">ERP: VT-00789</span>
+                <span class="name-text" style="font-style:italic">Dầu bôi trơn (润滑油)</span>
+              </div>
+            </td>
+            <td><span class="partner">Bảo Trì</span><div class="sub">2025-01-13 08:20</div></td>
+            <td>2025-01-13</td>
+            <td class="qty">5</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════════════
+     MODULE 2 – XUẤT KHO: Excel Export
+═══════════════════════════════════════════════════════════ -->
+
+<div class="section">
+  <span class="label">📊 Excel Xuất Kho – So sánh Before / After</span>
+  <div style="display:grid; grid-template-columns:1fr 1fr; gap:20px; margin-top:12px;">
+    <div>
+      <p style="font-size:11px; font-weight:700; color:#ef4444; margin-bottom:8px">❌ TRƯỚC (thiếu tên & quy cách)</p>
+      <table>
+        <thead><tr>
+          <th style="background:#fef2f2">Mã Phiếu</th>
+          <th style="background:#fef2f2">Người nhận</th>
+          <th style="background:#fef2f2">Số BPM</th>
+          <th style="background:#fef2f2">Mã ERP</th>
+          <th style="background:#fef2f2">Số lượng</th>
+          <th style="background:#fef2f2">Trạng thái</th>
+        </tr></thead>
+        <tbody>
+          <tr><td>XK-2025-001</td><td>Phòng KT</td><td>BPM-101</td><td>VT-00123</td><td>50</td><td>Đã xuất</td></tr>
+          <tr><td>XK-2025-002</td><td>Sản Xuất A</td><td>No BPM</td><td>VT-00456</td><td>20</td><td>Chờ xuất</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div>
+      <p style="font-size:11px; font-weight:700; color:#16a34a; margin-bottom:8px">✅ SAU (đầy đủ tên & quy cách)</p>
+      <table>
+        <thead><tr>
+          <th>Mã Phiếu</th>
+          <th>Người nhận</th>
+          <th>Số BPM</th>
+          <th>Mã ERP</th>
+          <th style="background:#f0fdf4; color:#16a34a">Tên Vật Tư</th>
+          <th style="background:#f0fdf4; color:#16a34a">Quy Cách</th>
+          <th>Số lượng</th>
+          <th>Trạng thái</th>
+        </tr></thead>
+        <tbody>
+          <tr><td>XK-2025-001</td><td>Phòng KT</td><td>BPM-101</td><td>VT-00123</td><td class="new-col">Bánh răng côn (锥齿轮)</td><td class="new-col">M4×25mm</td><td>50</td><td>Đã xuất</td></tr>
+          <tr><td>XK-2025-002</td><td>Sản Xuất A</td><td>No BPM</td><td>VT-00456</td><td class="new-col">Vòng bi đỡ (深沟球轴承)</td><td class="new-col">6205-2RS</td><td>20</td><td>Chờ xuất</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<p style="text-align:center; font-size:11px; color:#9ca3af; margin-top:8px">Wagon Inventory Hub – Mockup preview · Code đã push lên PR #7, merge khi OK</p>
+
+</body>
+</html>

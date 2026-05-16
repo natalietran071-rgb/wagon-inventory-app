@@ -701,15 +701,20 @@ Dữ liệu: ${validRows.length} dòng hợp lệ, ${errorRows.length} dòng l�
 
       if (error || !dataToExport) throw error || new Error('No data found');
 
-      const exportData = (dataToExport || []).map(item => ({
-        'Thời gian': `${item.date} ${item.time || ''}`,
-        'Order ID': item.order_id,
-        'Mã ERP': item.erp_code,
-        'Số lượng': item.qty,
-        'Đơn vị': item.unit,
-        'Vị trí': item.location || '',
-        'Trạng thái': item.status
-      }));
+      const exportData = (dataToExport || []).map(item => {
+        const inv = inventoryMap.get(item.erp_code);
+        return {
+          'Thời gian': `${item.date} ${item.time || ''}`,
+          'Order ID': item.order_id,
+          'Mã ERP': item.erp_code,
+          'Tên Vật Tư': inv ? `${inv.name || ''}${inv.name_zh ? ` (${inv.name_zh})` : ''}` : '',
+          'Quy Cách': inv?.spec || '',
+          'Số lượng': item.qty,
+          'Đơn vị': item.unit,
+          'Vị trí': item.location || '',
+          'Trạng thái': item.status
+        };
+      });
 
       const fileName = fromDate
         ? `nhap-kho_${fromDate}_${toDate || today}.xlsx`
@@ -1312,6 +1317,8 @@ Dữ liệu: ${validRows.length} dòng hợp lệ, ${errorRows.length} dòng l�
                 <th className="pb-3 md:pb-6 px-1 md:px-4 hidden lg:table-cell">Thời gian</th>
                 <th className="pb-3 md:pb-6 px-1 md:px-4 hidden md:table-cell">Mã Đơn</th>
                 <th className="pb-3 md:pb-6 px-1 md:px-4">Vật tư / ERP</th>
+                <th className="pb-3 md:pb-6 px-1 md:px-4 hidden xl:table-cell">Tên Vật Tư</th>
+                <th className="pb-3 md:pb-6 px-1 md:px-4 hidden xl:table-cell">Quy Cách</th>
                 <th className="pb-3 md:pb-6 px-1 md:px-4 text-right md:text-left">SL</th>
                 <th className="pb-3 md:pb-6 px-1 md:px-4 hidden lg:table-cell">{t('location')}</th>
                 <th className="pb-3 md:pb-6 px-1 md:px-4 hidden xl:table-cell">Trạng thái</th>
@@ -1352,6 +1359,12 @@ Dữ liệu: ${validRows.length} dòng hợp lệ, ${errorRows.length} dòng l�
                       <span className="text-[9px] text-outline-variant inline-block font-sans"><span className="font-bold">Loc:</span> {row.location || '-'}</span>
                       <span className="text-[9px] text-outline-variant inline-block font-sans"><span className="font-bold">Lúc:</span> {row.date} {row.time || '-'}</span>
                     </div>
+                  </td>
+                  <td className="py-3 md:py-6 px-1 md:px-4 hidden xl:table-cell">
+                    {(() => { const inv = inventoryMap.get(row.erp_code); return inv ? <span className="text-xs text-on-surface">{inv.name}{inv.name_zh ? ` (${inv.name_zh})` : ''}</span> : <span className="text-outline-variant/40 text-xs">—</span>; })()}
+                  </td>
+                  <td className="py-3 md:py-6 px-1 md:px-4 hidden xl:table-cell">
+                    {(() => { const inv = inventoryMap.get(row.erp_code); return inv?.spec ? <span className="text-xs text-on-surface-variant">{inv.spec}</span> : <span className="text-outline-variant/40 text-xs">—</span>; })()}
                   </td>
                   <td className="py-3 md:py-6 px-1 md:px-4 font-bold text-right md:text-left text-[11px] md:text-sm">{Number(row.qty).toLocaleString('en-US')} <span className="text-[9px] md:text-xs font-normal text-outline-variant inline-block ml-0.5 md:ml-1">{row.unit}</span></td>
                   <td className="py-3 md:py-6 px-1 md:px-4 hidden lg:table-cell"><span className="px-3 py-1 bg-surface-container-high rounded-full text-[9px] md:text-xs">{row.location}</span></td>

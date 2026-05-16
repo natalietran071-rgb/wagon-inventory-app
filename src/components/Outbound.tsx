@@ -785,18 +785,27 @@ const Outbound = () => {
 
       if (error || !dataToExport) throw error || new Error('No data found');
 
-      const exportData = (dataToExport || []).map(item => ({
-        'Mã Phiếu': item.outbound_id,
-        'Người Nhận / Bộ Phận': item.partner,
-        'Số BPM': item.bpm_number || '',
-        'Mã ERP': item.erp_code,
-        'Số Lượng': item.qty,
-        'Ngày Yêu Cầu': item.required_date || item.date,
-        'Ngày Tạo': new Date(item.created_at).toLocaleString(),
-        'Trạng Thái': item.status,
-        'Vị Trí': item.location || '',
-        'Người xử lý': item.initials
-      }));
+      const filteredExport = filterNoBpm
+        ? (dataToExport || []).filter((item: any) => !item.bpm_number || item.bpm_number === 'No BPM')
+        : (dataToExport || []);
+
+      const exportData = filteredExport.map(item => {
+        const inv = inventoryMap.get(item.erp_code);
+        return {
+          'Mã Phiếu': item.outbound_id,
+          'Người Nhận / Bộ Phận': item.partner,
+          'Số BPM': item.bpm_number || '',
+          'Mã ERP': item.erp_code,
+          'Tên Vật Tư': inv ? `${inv.name || ''}${inv.name_zh ? ` (${inv.name_zh})` : ''}` : (item.item_name || ''),
+          'Quy Cách': inv?.spec || '',
+          'Số Lượng': item.qty,
+          'Ngày Yêu Cầu': item.required_date || item.date,
+          'Ngày Tạo': new Date(item.created_at).toLocaleString(),
+          'Trạng Thái': item.status,
+          'Vị Trí': item.location || '',
+          'Người xử lý': item.initials
+        };
+      });
 
       const rangeTag = filterDateFrom || filterDateTo
         ? `_${filterDateFrom || '...'}_to_${filterDateTo || '...'}`
@@ -1427,19 +1436,25 @@ const Outbound = () => {
                       </td>
                       <td className="px-1 py-3 md:px-4 md:py-6 align-middle">
                         <p className="font-bold text-on-surface text-[11px] md:text-sm">{order.outbound_id}</p>
-                        <button 
-                          onClick={(e) => {
-                             e.stopPropagation();
-                             const item = inventoryMap.get(order.erp_code);
-                             setHistoryModal({ isOpen: true, erp: order.erp_code, name: item?.name || '' });
-                          }}
-                          className="text-[9px] md:text-[10px] text-primary bg-primary/10 px-1.5 py-0.5 rounded-md inline-block mt-0.5 font-bold hover:bg-primary hover:text-white transition-colors cursor-pointer"
-                        >
-                          ERP: {order.erp_code}
-                        </button>
                         {(() => {
                           const item = inventoryMap.get(order.erp_code);
-                          return item && <p className="text-[9px] md:text-[10px] text-on-surface-variant mt-1 italic truncate max-w-[150px] md:max-w-[200px]" title={item.name}>{item.name}</p>;
+                          return (
+                            <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 mt-0.5">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setHistoryModal({ isOpen: true, erp: order.erp_code, name: item?.name || '' });
+                                }}
+                                className="text-[9px] md:text-[10px] text-primary bg-primary/10 px-1.5 py-0.5 rounded-md font-bold hover:bg-primary hover:text-white transition-colors cursor-pointer shrink-0"
+                              >
+                                ERP: {order.erp_code}
+                              </button>
+                              {item && <>
+                                <span className="text-[9px] md:text-[10px] text-on-surface-variant italic truncate max-w-[120px] md:max-w-[180px]" title={item.name}>{item.name}{item.name_zh ? ` (${item.name_zh})` : ''}</span>
+                                {item.spec && <span className="bg-secondary/10 text-secondary px-1 py-0.5 rounded text-[8px] font-medium shrink-0">{item.spec}</span>}
+                              </>}
+                            </div>
+                          );
                         })()}
                         <div className="sm:hidden mt-2">
                            <p className="font-medium text-on-surface text-[10px] leading-tight break-words">{order.partner}</p>

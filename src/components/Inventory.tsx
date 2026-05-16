@@ -114,7 +114,7 @@ const Inventory = () => {
           .select('*', { count: 'exact' });
         
         if (searchName) {
-          query = query.or(`erp.ilike.%${searchName}%,name.ilike.%${searchName}%`);
+          query = query.or(`erp.ilike.%${searchName}%,name.ilike.%${searchName}%,name_zh.ilike.%${searchName}%`);
         }
         
         if (selectedCategory !== 'All') {

@@ -390,7 +390,7 @@ const Inventory = () => {
       }]);
 
       // Delete all inventory
-      const { error } = await supabase.from('inventory').delete().neq('id', 0);
+      const { error } = await supabase.from('inventory').delete().neq('erp', '');
       if (error) throw error;
 
       alert('Đã xóa toàn bộ dữ liệu tồn kho!');

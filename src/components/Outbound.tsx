@@ -60,29 +60,33 @@ const Outbound = () => {
   const [errorLog, setErrorLog] = useState<string>('');
   const [editHistory, setEditHistory] = useState<any[]>([]);
 
+  const fetchOutboundRecords = async (): Promise<any[]> => {
+    const PAGE = 1000;
+    let allData: any[] = [];
+    let page = 0;
+    let hasMore = true;
+    while (hasMore) {
+      const { data, error } = await supabase
+        .from('outbound_records')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .range(page * PAGE, (page + 1) * PAGE - 1);
+      if (error) throw error;
+      if (data && data.length > 0) {
+        allData = allData.concat(data);
+        hasMore = data.length === PAGE;
+        page++;
+      } else {
+        hasMore = false;
+      }
+    }
+    return allData;
+  };
+
   const loadOutboundRecords = async () => {
     try {
-      // Load ALL records with pagination (no limit)
-      const PAGE = 1000;
-      let allData: any[] = [];
-      let page = 0;
-      let hasMore = true;
-      while (hasMore) {
-        const { data, error } = await supabase
-          .from('outbound_records')
-          .select('*')
-          .order('created_at', { ascending: false })
-          .range(page * PAGE, (page + 1) * PAGE - 1);
-        if (error) throw error;
-        if (data && data.length > 0) {
-          allData = allData.concat(data);
-          hasMore = data.length === PAGE;
-          page++;
-        } else {
-          hasMore = false;
-        }
-      }
-      setOutboundRecords(allData);
+      const data = await fetchOutboundRecords();
+      setOutboundRecords(data);
     } catch (error) {
       console.error('Error fetching outbound records:', error);
     }
@@ -145,25 +149,27 @@ const Outbound = () => {
     const fetchData = async () => {
       setLoading(true);
       try {
-        // Fetch inventory with pagination (can be 20K+ rows)
-        const PAGE = 1000;
-        let allInv: any[] = [];
-        let pg = 0;
-        let hasMore = true;
-        while (hasMore) {
-          const { data, error } = await supabase
-            .from('inventory')
-            .select('erp, name, name_zh, end_stock, spec, out_qty')
-            .order('erp', { ascending: true })
-            .range(pg * PAGE, (pg + 1) * PAGE - 1);
-          if (error) { console.error('Inventory fetch error:', error); break; }
-          if (data && data.length > 0) { allInv = allInv.concat(data); hasMore = data.length === PAGE; pg++; }
-          else { hasMore = false; }
-        }
-        setInventoryItems(allInv);
+        const fetchInventory = async (): Promise<any[]> => {
+          const PAGE = 1000;
+          let allInv: any[] = [];
+          let pg = 0;
+          let hasMore = true;
+          while (hasMore) {
+            const { data, error } = await supabase
+              .from('inventory')
+              .select('erp, name, name_zh, end_stock, spec, out_qty')
+              .order('erp', { ascending: true })
+              .range(pg * PAGE, (pg + 1) * PAGE - 1);
+            if (error) { console.error('Inventory fetch error:', error); break; }
+            if (data && data.length > 0) { allInv = allInv.concat(data); hasMore = data.length === PAGE; pg++; }
+            else { hasMore = false; }
+          }
+          return allInv;
+        };
 
-        // Fetch outbound records (with pagination)
-        await loadOutboundRecords();
+        const [inv, outbound] = await Promise.all([fetchInventory(), fetchOutboundRecords()]);
+        setInventoryItems(inv);
+        setOutboundRecords(outbound);
       } catch (err) {
         console.error('Error fetching data:', err);
       } finally {

@@ -655,6 +655,12 @@ Dữ liệu: ${validRows.length} dòng hợp lệ, ${errorRows.length} dòng l�
     }
   };
 
+  const inventoryMap = useMemo(() => {
+    const map = new Map();
+    inventoryItems.forEach(item => map.set(item.erp, item));
+    return map;
+  }, [inventoryItems]);
+
   const filteredInbound = useMemo(() => {
     let result = inboundRecords;
     if (fromDate) {
@@ -665,14 +671,21 @@ Dữ liệu: ${validRows.length} dòng hợp lệ, ${errorRows.length} dòng l�
     }
     if (searchQuery.trim()) {
       const lowerQ = searchQuery.toLowerCase();
-      result = result.filter(item => 
-        (item.order_id && item.order_id.toLowerCase().includes(lowerQ)) ||
-        (item.erp_code && item.erp_code.toLowerCase().includes(lowerQ)) ||
-        (item.location && item.location.toLowerCase().includes(lowerQ))
-      );
+      result = result.filter(item => {
+        const invItem = inventoryMap.get(item.erp_code);
+        const nameMatch = invItem && (
+          (invItem.name && invItem.name.toLowerCase().includes(lowerQ)) ||
+          (invItem.name_zh && invItem.name_zh.includes(lowerQ)) ||
+          (invItem.spec && invItem.spec.toLowerCase().includes(lowerQ))
+        );
+        return (item.order_id && item.order_id.toLowerCase().includes(lowerQ)) ||
+          (item.erp_code && item.erp_code.toLowerCase().includes(lowerQ)) ||
+          (item.location && item.location.toLowerCase().includes(lowerQ)) ||
+          nameMatch;
+      });
     }
     return result;
-  }, [inboundRecords, fromDate, toDate, searchQuery]);
+  }, [inboundRecords, fromDate, toDate, searchQuery, inventoryMap]);
 
   const exportToExcel = async () => {
     setLoading(true);

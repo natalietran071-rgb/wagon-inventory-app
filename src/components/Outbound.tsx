@@ -717,7 +717,7 @@ const Outbound = () => {
         const invItem = inventoryMap.get(item.erp_code);
         const itemNameMatch = invItem && (
           (invItem.name && invItem.name.toLowerCase().includes(lowerQ)) ||
-          (invItem.name_zh && invItem.name_zh.toLowerCase().includes(lowerQ)) ||
+          (invItem.name_zh && invItem.name_zh.includes(lowerQ)) ||
           (invItem.spec && invItem.spec.toLowerCase().includes(lowerQ))
         );
         return (item.outbound_id && item.outbound_id.toLowerCase().includes(lowerQ)) ||

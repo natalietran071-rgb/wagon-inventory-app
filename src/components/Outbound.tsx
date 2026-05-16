@@ -35,9 +35,11 @@ const Outbound = () => {
   const { profile, user } = useAuth();
   const { t } = useLanguage();
   const location = useLocation();
-  const [filterDate, setFilterDate] = useState('');
+  const [filterDateFrom, setFilterDateFrom] = useState('');
+  const [filterDateTo, setFilterDateTo] = useState('');
   const [filterDateType, setFilterDateType] = useState<'date' | 'created_at'>('date');
   const [filterStatus, setFilterStatus] = useState<string>('all');
+  const [filterNoBpm, setFilterNoBpm] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [historyModal, setHistoryModal] = useState<{ isOpen: boolean, erp: string, name: string }>({ isOpen: false, erp: '', name: '' });
   const [sortField, setSortField] = useState<'date' | 'outbound_id'>('date');
@@ -126,6 +128,7 @@ const Outbound = () => {
   const createEmptyOutboundRow = () => ({
     outboundId: '',
     partner: '',
+    bpm: '',
     erpCode: '',
     qty: '',
     requiredDate: new Date().toISOString().split('T')[0]
@@ -138,7 +141,9 @@ const Outbound = () => {
     partner: '',
     erpCode: '',
     qty: '',
-    requiredDate: new Date().toISOString().split('T')[0]
+    requiredDate: new Date().toISOString().split('T')[0],
+    bpm: '',
+    noBpm: false
   });
 
   // Modal states
@@ -319,7 +324,8 @@ const Outbound = () => {
     import('xlsx').then(XLSX => {
       const templateData = [{
         'Mã Phiếu Xuất (Bỏ trống sẽ tự tạo)': '',
-        'Người Nhận / Đối Tác (*)': '',
+        'Người Nhận / Bộ Phận (*)': '',
+        'Số BPM (hoặc "No BPM")': '',
         'Mã ERP (*)': '',
         'Tên Vật Tư (Không nhập)': '',
         'Số lượng xuất (*)': '',
@@ -360,11 +366,12 @@ const Outbound = () => {
             
             newRows[currentRowIdx].outboundId = row[0]?.toString() || '';
             newRows[currentRowIdx].partner = row[1]?.toString() || '';
-            newRows[currentRowIdx].erpCode = row[2]?.toString() || '';
-            newRows[currentRowIdx].qty = row[4]?.toString() || '';
-            
+            newRows[currentRowIdx].bpm = row[2]?.toString() || '';
+            newRows[currentRowIdx].erpCode = row[3]?.toString() || '';
+            newRows[currentRowIdx].qty = row[5]?.toString() || '';
+
             // Excel dates might be number serials or strings
-            let dateVal = row[5];
+            let dateVal = row[6];
             if (typeof dateVal === 'number') {
                 const dateParam = new Date((dateVal - (25567 + 2)) * 86400 * 1000);
                 dateVal = dateParam.toISOString().split('T')[0];
@@ -423,10 +430,12 @@ const Outbound = () => {
       const partnerValue = row.partner.trim() || 'Nội bộ';
       const initials = partnerValue.split(' ').map(n => n?.[0] || '').join('').toUpperCase().slice(0, 2);
       const outboundId = row.outboundId.trim() || `OUT-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
+      const bpmValue = row.bpm?.trim();
       return {
         outbound_id: outboundId,
         erp_code: row.erpCode.trim(),
         partner: partnerValue,
+        bpm_number: bpmValue === 'No BPM' ? 'No BPM' : (bpmValue || null),
         qty: Math.round(parseFloat(row.qty)),
         initials: initials,
         status: 'Chờ xuất',
@@ -492,6 +501,7 @@ const Outbound = () => {
         outbound_id: outboundId,
         erp_code: formData.erpCode,
         partner: formData.partner,
+        bpm_number: formData.noBpm ? 'No BPM' : (formData.bpm.trim() || null),
         qty: requestedQty,
         initials: initials,
         status: 'Chờ xuất',
@@ -505,7 +515,7 @@ const Outbound = () => {
       console.error('Error saving outbound record:', error);
       showToast('Lỗi khi lưu phiếu xuất: ' + error.message, true);
     } else {
-      setFormData({ partner: '', erpCode: '', qty: '', requiredDate: new Date().toISOString().split('T')[0] });
+      setFormData({ partner: '', erpCode: '', qty: '', requiredDate: new Date().toISOString().split('T')[0], bpm: '', noBpm: false });
       await loadOutboundRecords();
       showToast('Tạo lệnh xuất kho thành công!');
       listRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -674,22 +684,19 @@ const Outbound = () => {
     let result = [...outboundRecords];
     const today = new Date().toISOString().split('T')[0];
 
-    // Filter by Date
-    if (filterDate) {
+    // Filter by Date range
+    if (filterDateFrom || filterDateTo) {
       result = result.filter(item => {
         let itemDate = '';
         if (filterDateType === 'date') {
           itemDate = item.required_date || item.date;
-        } else if (filterDateType === 'created_at') {
+        } else {
           itemDate = new Date(item.created_at).toISOString().split('T')[0];
         }
-
-        const matchDate = itemDate === filterDate;
-        
-        // Hàng nào chưa xuất mà ngày hiện tại > ngày yêu cầu/cần xuất thì vẫn liệt kê ra khi lọc ngày
+        const afterFrom = !filterDateFrom || itemDate >= filterDateFrom;
+        const beforeTo = !filterDateTo || itemDate <= filterDateTo;
         const isOverduePending = item.status === 'Chờ xuất' && today > (item.required_date || item.date);
-
-        return matchDate || isOverduePending;
+        return (afterFrom && beforeTo) || isOverduePending;
       });
     }
 
@@ -698,23 +705,27 @@ const Outbound = () => {
       result = result.filter(item => item.status === filterStatus);
     }
 
+    // Filter No BPM
+    if (filterNoBpm) {
+      result = result.filter(item => !item.bpm_number || item.bpm_number === 'No BPM');
+    }
+
     // Search Query
     if (searchQuery.trim()) {
       const lowerQ = searchQuery.toLowerCase();
       result = result.filter(item => {
-        // Use map for faster lookup
         const invItem = inventoryMap.get(item.erp_code);
         const itemNameMatch = invItem && (
           (invItem.name && invItem.name.toLowerCase().includes(lowerQ)) ||
           (invItem.name_zh && invItem.name_zh.toLowerCase().includes(lowerQ)) ||
           (invItem.spec && invItem.spec.toLowerCase().includes(lowerQ))
         );
-
         return (item.outbound_id && item.outbound_id.toLowerCase().includes(lowerQ)) ||
           (item.partner && item.partner.toLowerCase().includes(lowerQ)) ||
           (item.erp_code && item.erp_code.toLowerCase().includes(lowerQ)) ||
+          (item.bpm_number && item.bpm_number.toLowerCase().includes(lowerQ)) ||
           (item.date && item.date.toLowerCase().includes(lowerQ)) ||
-          itemNameMatch
+          itemNameMatch;
       });
     }
 
@@ -734,7 +745,7 @@ const Outbound = () => {
     });
 
     return result;
-  }, [outboundRecords, filterDate, filterDateType, filterStatus, sortField, sortOrder, searchQuery]);
+  }, [outboundRecords, filterDateFrom, filterDateTo, filterDateType, filterStatus, filterNoBpm, sortField, sortOrder, searchQuery]);
 
   // Pagination logic
   const totalPages = Math.ceil(filteredOutbound.length / itemsPerPage) || 1;
@@ -745,7 +756,7 @@ const Outbound = () => {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [filterDate, filterDateType, filterStatus]);
+  }, [filterDateFrom, filterDateTo, filterDateType, filterStatus, filterNoBpm]);
 
   const selectedItemDetails = useMemo(() => {
     return inventoryItems.find(i => i.erp === formData.erpCode) || null;
@@ -768,15 +779,16 @@ const Outbound = () => {
       const { data: dataToExport, error } = await (supabase.rpc('export_outbound', {
         p_search: searchQuery || '',
         p_status: filterStatus.toLowerCase() === 'all' ? 'all' : filterStatus,
-        p_from_date: filterDate || null,
-        p_to_date: filterDate || null
+        p_from_date: filterDateFrom || null,
+        p_to_date: filterDateTo || null
       }) as any).setHeader('Prefer', 'return=representation');
 
       if (error || !dataToExport) throw error || new Error('No data found');
 
       const exportData = (dataToExport || []).map(item => ({
         'Mã Phiếu': item.outbound_id,
-        'Đối Tác / Người Nhận': item.partner,
+        'Người Nhận / Bộ Phận': item.partner,
+        'Số BPM': item.bpm_number || '',
         'Mã ERP': item.erp_code,
         'Số Lượng': item.qty,
         'Ngày Yêu Cầu': item.required_date || item.date,
@@ -786,9 +798,10 @@ const Outbound = () => {
         'Người xử lý': item.initials
       }));
 
-      const fileName = filterDate
-        ? `xuat-kho_${filterDate}.xlsx`
-        : `xuat-kho_${today}.xlsx`;
+      const rangeTag = filterDateFrom || filterDateTo
+        ? `_${filterDateFrom || '...'}_to_${filterDateTo || '...'}`
+        : '';
+      const fileName = `xuat-kho${rangeTag || `_${today}`}.xlsx`;
         
       const sheets = exportToExcelMultiSheet(exportData, fileName, 'Xuất Kho');
       showToast(`✅ Đã xuất ${exportData.length.toLocaleString()} dòng — ${sheets} sheet!`);
@@ -890,93 +903,8 @@ const Outbound = () => {
         </div>
       </div>
 
-      <div className="flex flex-col xl:flex-row gap-6 mb-8 items-start xl:items-center">
-        <div className="flex-1 flex flex-wrap items-center gap-3">
-          {/* Search Toggle Button & Input */}
-          <div className={`flex items-center transition-all duration-300 ease-in-out ${isSearchExpanded ? 'flex-1' : 'w-12'}`}>
-            <button 
-              onClick={() => setIsSearchExpanded(!isSearchExpanded)}
-              className={`flex-shrink-0 w-12 h-12 rounded-full flex items-center justify-center transition-all ${isSearchExpanded ? 'bg-primary text-on-primary shadow-lg ring-4 ring-primary/10' : 'bg-surface-container-high text-on-surface-variant hover:bg-surface-container-highest shadow-sm'}`}
-            >
-              <span className="material-symbols-outlined">{isSearchExpanded ? 'close' : 'search'}</span>
-            </button>
-            {isSearchExpanded && (
-              <div className="flex-1 ml-3 animate-in fade-in slide-in-from-left-2 duration-200">
-                <input 
-                  autoFocus
-                  type="text"
-                  placeholder="Tìm kiếm..."
-                  className="w-full h-12 bg-surface-container-low border border-primary/20 rounded-2xl px-5 text-sm font-bold text-on-surface focus:ring-4 focus:ring-primary/10 focus:border-primary shadow-inner outline-none transition-all"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                       // search handled by useMemo locally
-                    }
-                  }}
-                />
-              </div>
-            )}
-          </div>
 
-        <div className="flex flex-col md:flex-row items-center gap-2 bg-surface-container-low p-1.5 rounded-2xl shadow-sm border border-outline-variant/10 w-full md:w-auto">
-          <div className="flex items-center gap-2 px-3 py-2 border-b md:border-b-0 md:border-r border-outline-variant/20 w-full md:w-auto">
-            <span className="material-symbols-outlined text-sm text-on-surface-variant">filter_list</span>
-            <select 
-              className="bg-transparent border-none text-[10px] md:text-xs font-bold focus:ring-0 cursor-pointer text-on-surface-variant appearance-none outline-none p-0 pr-4 flex-1 md:flex-none"
-              value={filterStatus}
-              onChange={(e) => setFilterStatus(e.target.value)}
-            >
-              <option value="all">Tất cả trạng thái</option>
-              <option value="Chờ xuất">Chờ xuất</option>
-              <option value="Đã Xuất">Đã Xuất</option>
-            </select>
-          </div>
-          
-          <div className="flex items-center gap-1 px-3 py-2 border-b md:border-b-0 md:border-r border-outline-variant/20 w-full md:w-auto">
-            <span className="material-symbols-outlined text-sm text-on-surface-variant">swap_vert</span>
-            <select 
-              className="bg-transparent border-none text-[10px] md:text-xs font-bold focus:ring-0 cursor-pointer text-on-surface-variant appearance-none outline-none p-0 pr-4 flex-1 md:flex-none"
-              value={sortField}
-              onChange={(e) => setSortField(e.target.value as any)}
-            >
-              <option value="date">Xếp theo Ngày</option>
-              <option value="outbound_id">Xếp theo Mã Xuất</option>
-            </select>
-            <button 
-              onClick={() => setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')}
-              className="p-1 hover:bg-surface-container-high rounded-lg flex items-center justify-center transition-colors text-on-surface-variant"
-              title={sortOrder === 'asc' ? 'Tăng dần' : 'Giảm dần'}
-            >
-              <span className="material-symbols-outlined text-base">
-                {sortOrder === 'asc' ? 'arrow_upward' : 'arrow_downward'}
-              </span>
-            </button>
-          </div>
-
-          <div className="flex items-center gap-2 px-3 py-2 h-auto md:h-10 w-full md:w-auto">
-            <span className="material-symbols-outlined text-sm text-on-surface-variant">calendar_today</span>
-            <select 
-              className="bg-transparent border-none text-[10px] md:text-xs font-bold focus:ring-0 cursor-pointer text-on-surface-variant appearance-none outline-none p-0 pr-3"
-              value={filterDateType}
-              onChange={(e) => setFilterDateType(e.target.value as any)}
-            >
-              <option value="date">{t('requiredDate')}</option>
-              <option value="created_at">Ngày tạo lệnh</option>
-            </select>
-            <div className="w-[1px] h-4 bg-outline-variant/20 mx-1"></div>
-            <input 
-              type="date"
-              className="bg-transparent border-none text-[10px] md:text-xs font-bold focus:ring-0 cursor-pointer text-on-surface-variant outline-none p-0 flex-1 md:flex-none min-w-[90px]"
-              value={filterDate}
-              onChange={(e) => setFilterDate(e.target.value)}
-            />
-          </div>
-        </div>
-      </div>
-    </div>
-
-      <div className="grid grid-cols-3 gap-2 md:gap-4 mb-8">
+      <div className="grid grid-cols-3 gap-2 md:gap-4 mb-4">
         <div className="bg-surface-container-low p-2 md:p-4 rounded-xl md:rounded-2xl shadow-sm border border-outline-variant/10 text-center">
           <span className="text-[8px] md:text-[10px] font-black text-on-surface-variant uppercase tracking-widest block mb-0.5 opacity-60">MÃ HÀNG</span>
           <div className="text-sm md:text-xl font-black text-primary leading-none tracking-tight">{filteredOutboundStats.uniqueSKU.toLocaleString()} <span className="text-[8px] md:text-[10px] font-medium opacity-50 font-inter">SKU</span></div>
@@ -989,6 +917,114 @@ const Outbound = () => {
           <span className="text-[8px] md:text-[10px] font-black text-on-surface-variant uppercase tracking-widest block mb-0.5 opacity-60">TỔNG SL</span>
           <div className="text-sm md:text-xl font-black text-primary leading-none tracking-tight">{filteredOutboundStats.qty.toLocaleString()} <span className="text-[8px] md:text-[10px] font-medium opacity-50 font-inter">Units</span></div>
         </div>
+      </div>
+
+      {/* ── Filter bar (below stats) ── */}
+      <div className="flex flex-wrap items-center gap-2 bg-surface-container-low p-2 rounded-2xl shadow-sm border border-outline-variant/10 mb-6">
+        {/* Search */}
+        <div className={`flex items-center transition-all duration-300 ease-in-out ${isSearchExpanded ? 'flex-1 min-w-[160px]' : 'w-10'}`}>
+          <button
+            onClick={() => setIsSearchExpanded(!isSearchExpanded)}
+            className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center transition-all ${isSearchExpanded ? 'bg-primary text-on-primary shadow-md' : 'bg-surface-container-high text-on-surface-variant hover:bg-surface-container-highest'}`}
+          >
+            <span className="material-symbols-outlined text-[18px]">{isSearchExpanded ? 'close' : 'search'}</span>
+          </button>
+          {isSearchExpanded && (
+            <input
+              autoFocus
+              type="text"
+              placeholder="Tìm mã ERP, người nhận, BPM..."
+              className="flex-1 ml-2 h-10 bg-transparent border-none outline-none text-sm font-semibold text-on-surface placeholder:text-on-surface-variant/50"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+          )}
+        </div>
+
+        <div className="w-px h-8 bg-outline-variant/20 hidden sm:block"></div>
+
+        {/* Status filter */}
+        <div className="flex items-center gap-1.5 px-2">
+          <span className="material-symbols-outlined text-sm text-on-surface-variant">filter_list</span>
+          <select
+            className="bg-transparent border-none text-xs font-bold focus:ring-0 cursor-pointer text-on-surface-variant appearance-none outline-none pr-3"
+            value={filterStatus}
+            onChange={(e) => setFilterStatus(e.target.value)}
+          >
+            <option value="all">Tất cả trạng thái</option>
+            <option value="Chờ xuất">Chờ xuất</option>
+            <option value="Đã Xuất">Đã Xuất</option>
+          </select>
+        </div>
+
+        <div className="w-px h-8 bg-outline-variant/20 hidden sm:block"></div>
+
+        {/* Sort */}
+        <div className="flex items-center gap-1 px-2">
+          <span className="material-symbols-outlined text-sm text-on-surface-variant">swap_vert</span>
+          <select
+            className="bg-transparent border-none text-xs font-bold focus:ring-0 cursor-pointer text-on-surface-variant appearance-none outline-none pr-3"
+            value={sortField}
+            onChange={(e) => setSortField(e.target.value as any)}
+          >
+            <option value="date">Xếp theo Ngày</option>
+            <option value="outbound_id">Xếp theo Mã Xuất</option>
+          </select>
+          <button
+            onClick={() => setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')}
+            className="p-1 hover:bg-surface-container-high rounded-lg transition-colors text-on-surface-variant"
+          >
+            <span className="material-symbols-outlined text-base">{sortOrder === 'asc' ? 'arrow_upward' : 'arrow_downward'}</span>
+          </button>
+        </div>
+
+        <div className="w-px h-8 bg-outline-variant/20 hidden sm:block"></div>
+
+        {/* Date range */}
+        <div className="flex items-center gap-1.5 px-2 flex-wrap">
+          <span className="material-symbols-outlined text-sm text-on-surface-variant">calendar_today</span>
+          <select
+            className="bg-transparent border-none text-xs font-bold focus:ring-0 cursor-pointer text-on-surface-variant appearance-none outline-none pr-2"
+            value={filterDateType}
+            onChange={(e) => setFilterDateType(e.target.value as any)}
+          >
+            <option value="date">{t('requiredDate')}</option>
+            <option value="created_at">Ngày tạo lệnh</option>
+          </select>
+          <input
+            type="date"
+            className="bg-transparent border-none text-xs font-bold focus:ring-0 cursor-pointer text-on-surface-variant outline-none min-w-[100px]"
+            value={filterDateFrom}
+            onChange={(e) => setFilterDateFrom(e.target.value)}
+          />
+          <span className="text-xs text-on-surface-variant font-bold">→</span>
+          <input
+            type="date"
+            className="bg-transparent border-none text-xs font-bold focus:ring-0 cursor-pointer text-on-surface-variant outline-none min-w-[100px]"
+            value={filterDateTo}
+            onChange={(e) => setFilterDateTo(e.target.value)}
+          />
+          {(filterDateFrom || filterDateTo) && (
+            <button
+              onClick={() => { setFilterDateFrom(''); setFilterDateTo(''); }}
+              className="text-on-surface-variant/50 hover:text-error transition-colors"
+              title="Xoá bộ lọc ngày"
+            >
+              <span className="material-symbols-outlined text-sm">close</span>
+            </button>
+          )}
+        </div>
+
+        <div className="w-px h-8 bg-outline-variant/20 hidden sm:block"></div>
+
+        {/* No BPM quick filter */}
+        <button
+          onClick={() => setFilterNoBpm(prev => !prev)}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all border ${filterNoBpm ? 'bg-amber-100 text-amber-700 border-amber-300' : 'bg-surface-container-high text-on-surface-variant border-outline-variant/20 hover:bg-surface-container-highest'}`}
+        >
+          <span className="material-symbols-outlined text-sm">receipt_long</span>
+          No BPM
+        </button>
       </div>
 
       <div className="grid grid-cols-1 gap-6">
@@ -1041,16 +1077,38 @@ const Outbound = () => {
             {activeTab === 'single' ? (
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                 <div className="space-y-5">
-                  <div>
-                    <label className="block text-xs font-bold text-on-surface-variant uppercase tracking-wider mb-2">Người Nhận</label>
-                    <input 
-                      className="w-full bg-surface-container-low border border-outline-variant/15 rounded-xl py-3 px-4 focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-sm" 
-                      placeholder="Nhập tên đơn vị hoặc cá nhân" 
-                      type="text" 
-                      value={formData.partner}
-                      onChange={(e) => setFormData({ ...formData, partner: e.target.value })}
-                      required
-                    />
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-bold text-on-surface-variant uppercase tracking-wider mb-2">Người Nhận / Bộ Phận</label>
+                      <input
+                        className="w-full bg-surface-container-low border border-outline-variant/15 rounded-xl py-3 px-4 focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-sm"
+                        placeholder="Tên đơn vị hoặc cá nhân"
+                        type="text"
+                        value={formData.partner}
+                        onChange={(e) => setFormData({ ...formData, partner: e.target.value })}
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-on-surface-variant uppercase tracking-wider mb-2">Số BPM</label>
+                      <input
+                        className={`w-full border border-outline-variant/15 rounded-xl py-3 px-4 focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-sm ${formData.noBpm ? 'bg-surface-container-low/40 text-on-surface-variant/50 cursor-not-allowed' : 'bg-surface-container-low'}`}
+                        placeholder={formData.noBpm ? 'No BPM' : 'Nhập số BPM...'}
+                        type="text"
+                        value={formData.noBpm ? '' : formData.bpm}
+                        onChange={(e) => setFormData({ ...formData, bpm: e.target.value })}
+                        disabled={formData.noBpm}
+                      />
+                      <label className="flex items-center gap-2 mt-1.5 cursor-pointer w-fit">
+                        <input
+                          type="checkbox"
+                          checked={formData.noBpm}
+                          onChange={(e) => setFormData({ ...formData, noBpm: e.target.checked, bpm: '' })}
+                          className="w-3.5 h-3.5 accent-primary"
+                        />
+                        <span className="text-[11px] font-bold text-on-surface-variant">No BPM</span>
+                      </label>
+                    </div>
                   </div>
                   <div>
                     <div className="flex justify-between items-center px-1">
@@ -1166,8 +1224,9 @@ const Outbound = () => {
                     <thead className="sticky top-0 bg-surface-container-highest z-20 shadow-sm border-b border-outline-variant/20">
                       <tr>
                         <th className="px-2 py-3 text-xs font-bold text-on-surface-variant uppercase text-center w-10">#</th>
-                        <th className="px-4 py-3 text-xs font-bold text-on-surface-variant uppercase min-w-[150px]">Mã Phiếu Xuất</th>
-                        <th className="px-4 py-3 text-xs font-bold text-on-surface-variant uppercase min-w-[150px]">Người Nhận</th>
+                        <th className="px-4 py-3 text-xs font-bold text-on-surface-variant uppercase min-w-[140px]">Mã Phiếu Xuất</th>
+                        <th className="px-4 py-3 text-xs font-bold text-on-surface-variant uppercase min-w-[140px]">Người Nhận / Bộ Phận</th>
+                        <th className="px-4 py-3 text-xs font-bold text-on-surface-variant uppercase min-w-[120px]">Số BPM</th>
                         <th className="px-4 py-3 text-xs font-bold text-on-surface-variant uppercase min-w-[180px]">Mã ERP (*)</th>
                         <th className="px-4 py-3 text-xs font-bold text-on-surface-variant uppercase min-w-[150px]">Tên SP</th>
                         <th className="px-4 py-3 text-xs font-bold text-on-surface-variant uppercase min-w-[100px]">Số lượng (*)</th>
@@ -1191,8 +1250,8 @@ const Outbound = () => {
                               />
                             </td>
                             <td className="p-0 border-r border-outline-variant/5">
-                              <input 
-                                type="text" 
+                              <input
+                                type="text"
                                 value={row.partner}
                                 onChange={(e) => handleRowChange(idx, 'partner', e.target.value)}
                                 onPaste={(e) => handlePaste(e, idx, 'partner')}
@@ -1200,8 +1259,18 @@ const Outbound = () => {
                                 placeholder="..."
                               />
                             </td>
+                            <td className="p-0 border-r border-outline-variant/5">
+                              <input
+                                type="text"
+                                value={row.bpm || ''}
+                                onChange={(e) => handleRowChange(idx, 'bpm', e.target.value)}
+                                onPaste={(e) => handlePaste(e, idx, 'bpm')}
+                                className="w-full bg-transparent border-none focus:ring-2 focus:ring-primary focus:outline-none px-4 py-3 text-sm font-medium"
+                                placeholder="BPM / No BPM"
+                              />
+                            </td>
                             <td className="p-0 border-r border-outline-variant/5 relative">
-                              <input 
+                              <input
                                 list="outbound-erp-options"
                                 type="text" 
                                 value={row.erpCode}
@@ -1337,7 +1406,8 @@ const Outbound = () => {
                   <tr className="text-[9px] md:text-[10px] font-black text-on-surface-variant uppercase tracking-widest border-none">
                     <th className="pb-3 md:pb-6 px-1 md:px-4 w-10 text-center"></th>
                     <th className="pb-3 md:pb-6 px-1 md:px-4 w-[110px] md:w-[150px]">Lệnh / ERP</th>
-                    <th className="pb-3 md:pb-6 px-1 md:px-4 hidden sm:table-cell">Đối Tác</th>
+                    <th className="pb-3 md:pb-6 px-1 md:px-4 hidden sm:table-cell">Người Nhận / Bộ Phận</th>
+                    <th className="pb-3 md:pb-6 px-1 md:px-4 hidden lg:table-cell">Số BPM</th>
                     <th className="pb-3 md:pb-6 px-1 md:px-4 hidden md:table-cell">{t('requiredDate')}</th>
                     <th className="pb-3 md:pb-6 px-1 md:px-4 text-center">SL</th>
                     <th className="pb-3 md:pb-6 px-1 md:px-4">Trạng Thái</th>
@@ -1386,6 +1456,13 @@ const Outbound = () => {
                             <p className="text-[9px] md:text-[10px] text-on-surface-variant">{new Date(order.created_at).toLocaleString()}</p>
                           </div>
                         </div>
+                      </td>
+                      <td className="px-1 py-3 md:px-4 md:py-6 align-middle hidden lg:table-cell">
+                        {order.bpm_number ? (
+                          <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${order.bpm_number === 'No BPM' ? 'bg-surface-container-high text-on-surface-variant/60 italic' : 'bg-primary/10 text-primary'}`}>
+                            {order.bpm_number}
+                          </span>
+                        ) : <span className="text-on-surface-variant/30 text-xs">—</span>}
                       </td>
                       <td className="px-1 py-3 md:px-4 md:py-6 align-middle hidden md:table-cell">
                         <p className="font-medium text-on-surface text-xs">{order.date}</p>

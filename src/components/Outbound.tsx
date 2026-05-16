@@ -785,7 +785,11 @@ const Outbound = () => {
 
       if (error || !dataToExport) throw error || new Error('No data found');
 
-      const exportData = (dataToExport || []).map(item => ({
+      const filteredExport = filterNoBpm
+        ? (dataToExport || []).filter((item: any) => !item.bpm_number || item.bpm_number === 'No BPM')
+        : (dataToExport || []);
+
+      const exportData = filteredExport.map(item => ({
         'Mã Phiếu': item.outbound_id,
         'Người Nhận / Bộ Phận': item.partner,
         'Số BPM': item.bpm_number || '',

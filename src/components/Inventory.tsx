@@ -464,35 +464,65 @@ const Inventory = () => {
     showToast('Đang xuất dữ liệu...');
     try {
       const today = new Date().toISOString().split('T')[0];
-      
-      // Fetch ALL inventory data using pagination (no 1000 row limit)
-      const PAGE = 1000;
       let allData: any[] = [];
-      let page = 0;
-      let hasMore = true;
-      
-      while (hasMore) {
-        let query = supabase.from('inventory').select('*')
-          .order('erp', { ascending: true })
-          .range(page * PAGE, (page + 1) * PAGE - 1);
-        
-        // Apply same filters as current view
-        if (searchName) {
-          query = query.or(`erp.ilike.%${searchName}%,name.ilike.%${searchName}%,name_zh.ilike.%${searchName}%`);
-        }
-        const loc = tableLocation === 'All' ? (selectedLocation === 'All' ? '' : selectedLocation) : tableLocation;
-        if (loc) {
-          query = query.like('pos', `${loc}%`);
+
+      if (reportFromDate && reportToDate) {
+        // Use RPC for date-range view (same as fetchInventory)
+        const { data: rpcData, error: rpcError } = await supabase.rpc('get_inventory_by_date', {
+          p_from_date: reportFromDate,
+          p_to_date: reportToDate,
+          p_search: searchName,
+          p_location: tableLocation === 'All' ? '' : tableLocation,
+          p_limit: 100000,
+          p_offset: 0
+        });
+        if (rpcError) throw rpcError;
+        allData = rpcData || [];
+      } else {
+        // Regular pagination with ALL active filters
+        const PAGE = 1000;
+        let page = 0;
+        let hasMore = true;
+
+        while (hasMore) {
+          let query = supabase.from('inventory').select('*')
+            .order('erp', { ascending: true })
+            .range(page * PAGE, (page + 1) * PAGE - 1);
+
+          if (searchName) {
+            query = query.or(`erp.ilike.%${searchName}%,name.ilike.%${searchName}%,name_zh.ilike.%${searchName}%`);
+          }
+          if (selectedCategory !== 'All') {
+            query = query.eq('category', selectedCategory);
+          }
+          const loc = tableLocation === 'All' ? (selectedLocation === 'All' ? '' : selectedLocation) : tableLocation;
+          if (loc) {
+            query = query.like('pos', `${loc}%`);
+          }
+          if (filterProblem === 'negative') {
+            query = query.lt('end_stock', 0);
+          } else if (filterProblem === 'missing') {
+            query = query.or('name.is.null,name.eq.""');
+          } else if (filterProblem === 'critical') {
+            query = query.eq('critical', true);
+          }
+
+          const { data, error } = await query;
+          if (error) throw error;
+          if (data && data.length > 0) {
+            allData = allData.concat(data);
+            hasMore = data.length === PAGE;
+            page++;
+          } else {
+            hasMore = false;
+          }
         }
 
-        const { data, error } = await query;
-        if (error) throw error;
-        if (data && data.length > 0) {
-          allData = allData.concat(data);
-          hasMore = data.length === PAGE;
-          page++;
-        } else {
-          hasMore = false;
+        // Duplicate filter is client-side only
+        if (filterProblem === 'duplicate') {
+          const erpCount: Record<string, number> = {};
+          allData.forEach(item => { erpCount[item.erp] = (erpCount[item.erp] || 0) + 1; });
+          allData = allData.filter(item => erpCount[item.erp] > 1);
         }
       }
 
@@ -515,7 +545,7 @@ const Inventory = () => {
       const fileName = reportFromDate
         ? `ton-kho_${reportFromDate}_${reportToDate || today}.xlsx`
         : `ton-kho_${today}.xlsx`;
-      
+
       const sheets = exportToExcelMultiSheet(exportData, fileName, 'Tồn Kho');
       showToast(`✅ Đã xuất ${exportData.length.toLocaleString()} dòng — ${sheets} sheet!`);
     } catch (err: any) {
